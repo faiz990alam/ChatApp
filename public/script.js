@@ -12,8 +12,8 @@ const messagesContainer = document.getElementById('message-container');
 const messagesList = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
 const sendButton = document.getElementById('send-button');
-const openCameraButton = document.getElementById('open-camera-button'); // New camera button
-const fileUpload = document.getElementById('file-upload'); // Hidden file input
+const openCameraButton = document.getElementById('open-camera-button');
+const fileUpload = document.getElementById('file-upload');
 const logoutButton = document.getElementById('logout-button');
 const clearChatButton = document.getElementById('clear-chat-button');
 const cameraModal = document.getElementById('camera-modal');
@@ -22,18 +22,41 @@ const captureButton = document.getElementById('capture-button');
 const uploadFromDeviceButton = document.getElementById('upload-from-device-button');
 const closeCameraButton = document.getElementById('close-camera-button');
 
+// Encryption Key
+const encryptionKey = 'your-secret-encryption-key'; // Replace with a strong, secret key
+
 let currentUsername = '';
 let currentRoomCode = '';
 const chatStorageKey = 'chatMessages';
 const userStorageKey = 'userSession';
 let capturedImage = null;
-let mediaStream = null;
+let currentStream = null;
+const cameraSelect = document.createElement('select'); // Create a select dropdown
+
+// Function to encrypt a message
+function encryptMessage(message) {
+    return CryptoJS.AES.encrypt(message, encryptionKey).toString();
+}
+
+// Function to decrypt a message
+function decryptMessage(encryptedMessage) {
+    try {
+        const bytes = CryptoJS.AES.decrypt(encryptedMessage, encryptionKey);
+        return bytes.toString(CryptoJS.enc.Utf8);
+    } catch (error) {
+        console.error("Error decrypting message:", error);
+        return encryptedMessage; // Return the original if decryption fails
+    }
+}
 
 // Function to display a message
 function displayMessage(data, isMe = false) {
     const li = document.createElement('li');
     li.classList.toggle('me', isMe);
     li.innerHTML = `<strong>${data.username}:</strong> ${data.text}`;
+    if (isMe) {
+        li.innerHTML += ` <span class="message-status single-tick"></span>`;
+    }
     messagesList.appendChild(li);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     saveChat();
@@ -44,6 +67,9 @@ function displayImage(data, isMe = false) {
     const li = document.createElement('li');
     li.classList.toggle('me', isMe);
     li.innerHTML = `<strong>${data.username}:</strong> <img src="${data.data}" alt="Image">`;
+    if (isMe) {
+        li.innerHTML += ` <span class="message-status single-tick"></span>`;
+    }
     messagesList.appendChild(li);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     saveChat();
@@ -118,29 +144,90 @@ messageInput.addEventListener('keypress', (event) => {
     }
 });
 
-// Event listener to open the camera modal
-openCameraButton.addEventListener('click', () => {
-    cameraModal.style.display = 'flex';
-    startCamera();
-});
-
-// Function to start the camera
-async function startCamera() {
+// Function to get available cameras
+async function getCameras() {
     try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        cameraStream.srcObject = mediaStream;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        const videoOptions = [];
+        videoDevices.forEach(device => {
+            let label = device.label || `Camera ${videoOptions.length + 1}`;
+            if (label.toLowerCase().includes('back') || label.toLowerCase().includes('rear')) {
+                label = 'Rear Camera';
+            } else if (label.toLowerCase().includes('front')) {
+                label = 'Front Camera';
+            }
+            videoOptions.push({ deviceId: device.deviceId, label: label });
+        });
+
+        cameraSelect.innerHTML = ''; // Clear previous options
+        // Remove duplicate labels and prioritize front/rear
+        const uniqueOptions = [];
+        const seenLabels = {};
+        videoOptions.forEach(option => {
+            if (!seenLabels[option.label]) {
+                uniqueOptions.push(option);
+                seenLabels[option.label] = true;
+            }
+        });
+
+        uniqueOptions.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option.deviceId;
+            optionElement.textContent = option.label;
+            cameraSelect.appendChild(optionElement);
+        });
+
+        const cameraControls = cameraModal.querySelector('#camera-controls');
+        if (uniqueOptions.length > 1 && !cameraControls.contains(cameraSelect)) {
+            cameraControls.insertBefore(cameraSelect, captureButton); // Add it to the modal if multiple cameras
+        } else if (uniqueOptions.length <= 1 && cameraControls.contains(cameraSelect)) {
+            cameraControls.removeChild(cameraSelect); // Remove if only one or none
+        }
+
     } catch (error) {
-        console.error('Error accessing camera:', error);
-        alert('Could not access camera. Please check your permissions.');
-        cameraModal.style.display = 'none';
+        console.error('Error enumerating devices:', error);
+        alert('Could not access camera information.');
     }
 }
 
+// Function to start the camera with a specific device ID
+async function startCamera(deviceId) {
+    try {
+        const constraints = {
+            video: { deviceId: deviceId ? { exact: deviceId } : undefined },
+            audio: false
+        };
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        cameraStream.srcObject = currentStream;
+    } catch (error) {
+        console.error('Error accessing camera:', error);
+        alert('Could not access the selected camera.');
+        cameraModal.style.display = 'none';
+        chatScreen.style.display = 'flex';
+    }
+}
+
+// Event listener to open the camera modal
+openCameraButton.addEventListener('click', async () => {
+    chatScreen.style.display = 'none'; // Hide the chat screen
+    cameraModal.style.display = 'flex'; // Show the camera modal
+    await getCameras(); // Populate the camera selection
+    startCamera(cameraSelect.value); // Start with the initially selected camera
+});
+
+// Event listener for camera selection change
+cameraSelect.addEventListener('change', () => {
+    stopCamera();
+    startCamera(cameraSelect.value);
+});
+
 // Event listener to capture a photo
 captureButton.addEventListener('click', () => {
-    if (mediaStream) {
+    if (currentStream) {
         const canvas = document.createElement('canvas');
-        const videoTrack = mediaStream.getVideoTracks()[0];
+        const videoTrack = currentStream.getVideoTracks()[0];
         const settings = videoTrack.getSettings();
         canvas.width = settings.width;
         canvas.height = settings.height;
@@ -150,6 +237,7 @@ captureButton.addEventListener('click', () => {
         stopCamera();
         sendMessage(capturedImage, true); // Send the captured image
         cameraModal.style.display = 'none';
+        chatScreen.style.display = 'flex'; // Show the chat screen after sending
     }
 });
 
@@ -169,43 +257,82 @@ fileUpload.addEventListener('change', (event) => {
         };
         reader.readAsDataURL(file);
     }
-    cameraModal.style.display = 'none'; // Close the modal after selecting a file
+    cameraModal.style.display = 'none';
+    chatScreen.style.display = 'flex'; // Show chat after upload
 });
 
 // Event listener to close the camera modal
 closeCameraButton.addEventListener('click', () => {
     cameraModal.style.display = 'none';
+    chatScreen.style.display = 'flex'; // Show the chat screen again
     stopCamera();
 });
 
 // Function to stop the camera
 function stopCamera() {
-    if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
         cameraStream.srcObject = null;
-        mediaStream = null;
+        currentStream = null;
     }
 }
 
-// Modified sendMessage function to handle both text and image
+// Modified sendMessage function to handle both text and image (with single tick on send)
 function sendMessage(data, isImage = false) {
     if (isImage && data) {
-        console.log('Client (send): Emitting sendImage (from camera/upload):', data.substring(0, 50));
+        console.log('Client (send): Emitting sendImage:', data.substring(0, 50));
         socket.emit('sendImage', data);
         displayImage({ username: currentUsername, data: data }, true);
+        // Immediately mark as sent (single tick)
+        const lastMessage = messagesList.lastElementChild;
+        if (lastMessage && lastMessage.classList.contains('me')) {
+            const statusSpan = lastMessage.querySelector('.message-status');
+            if (statusSpan) {
+                statusSpan.classList.remove('double-tick'); // Remove if it was added previously
+                statusSpan.classList.add('single-tick');
+            }
+        }
     } else if (!isImage && data.trim()) {
-        console.log('Client (send): Emitting sendMessage:', data);
-        socket.emit('sendMessage', data);
-        displayMessage({ username: currentUsername, text: data }, true);
+        const encryptedText = encryptMessage(data);
+        console.log('Client (send): Emitting sendMessage (encrypted):', encryptedText);
+        socket.emit('sendMessage', encryptedText);
+        displayMessage({ username: currentUsername, text: data }, true); // Display original message
         messageInput.value = '';
+        // Immediately mark as sent (single tick)
+        const lastMessage = messagesList.lastElementChild;
+        if (lastMessage && lastMessage.classList.contains('me')) {
+            const statusSpan = lastMessage.querySelector('.message-status');
+            if (statusSpan) {
+                statusSpan.classList.remove('double-tick'); // Remove if it was added previously
+                statusSpan.classList.add('single-tick');
+            }
+        }
     }
 }
 
-// Event listener for receiving a new text message
+// To simulate a delivered state (this is a basic example and would need server-side logic)
+socket.on('messageDelivered', (messageData) => {
+    const messages = messagesList.querySelectorAll('li.me');
+    messages.forEach(msg => {
+        const textContent = msg.textContent.split(' ').slice(1, -1).join(' '); // Extract message text
+        if (textContent === messageData.text && msg.querySelector('.message-status.single-tick')) {
+            const statusSpan = msg.querySelector('.message-status');
+            statusSpan.classList.remove('single-tick');
+            statusSpan.classList.add('delivered-tick');
+        } else if (msg.querySelector('.message-status.single-tick') && messageData.isImage && msg.innerHTML.includes(`<img src="${messageData.data.substring(0, 50)}`)) {
+            const statusSpan = msg.querySelector('.message-status');
+            statusSpan.classList.remove('single-tick');
+            statusSpan.classList.add('delivered-tick');
+        }
+    });
+});
+
+// Event listener for receiving a new text message (with decryption)
 socket.on('newMessage', (data) => {
-    console.log('Client (receive): Received newMessage:', data);
+    console.log('Client (receive): Received newMessage (encrypted):', data);
     if (data.username !== currentUsername) {
-        displayMessage(data);
+        const decryptedText = decryptMessage(data.text);
+        displayMessage({ ...data, text: decryptedText });
     }
 });
 
@@ -213,7 +340,7 @@ socket.on('newMessage', (data) => {
 socket.on('newImage', (data) => {
     console.log('Client (receive): Received newImage:', data);
     if (data.username !== currentUsername) {
-        displayImage(data, false);
+        displayImage({ username: data.username, data: data.data }, false);
     }
 });
 
@@ -263,3 +390,11 @@ logoutButton.addEventListener('click', () => {
     currentRoomCode = '';
     socket.disconnect();
 });
+
+// Initial setup: Add camera selection to the modal
+cameraModal.addEventListener('show', async () => {
+    await getCameras();
+});
+
+// Load user session on initial load
+loadUserSession();
