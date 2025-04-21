@@ -1,79 +1,127 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
+import express from "express"
+import http from "http"
+import { Server } from "socket.io"
+import path from "path"
+import { fileURLToPath } from "url"
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+// Setup paths for ES modules
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
-const users = {};
-const rooms = {};
+// Initialize Express app and HTTP server
+const app = express()
+const server = http.createServer(app)
+const io = new Server(server)
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files
+app.use(express.static(path.join(__dirname, "public")))
 
-io.on('connection', (socket) => {
-    console.log('Server: A user connected:', socket.id);
+// In-memory storage for active rooms and users
+const rooms = {}
 
-    socket.on('joinRoom', ({ username, roomCode }) => {
-        socket.join(roomCode);
-        users[socket.id] = { username, roomCode };
+// Socket.IO connection handling
+io.on("connection", (socket) => {
+  let currentRoom = null
+  let currentUser = null
 
-        if (!rooms[roomCode]) {
-            rooms[roomCode] = [];
+  // Handle user joining a room
+  socket.on("join", ({ username, roomCode }) => {
+    currentUser = username
+    currentRoom = roomCode
+
+    // Create room if it doesn't exist
+    if (!rooms[roomCode]) {
+      rooms[roomCode] = { users: [] }
+    }
+
+    // Add user to room
+    rooms[roomCode].users.push({
+      id: socket.id,
+      username,
+    })
+
+    // Join the Socket.IO room
+    socket.join(roomCode)
+
+    // Notify everyone in the room
+    io.to(roomCode).emit("userJoined", {
+      user: username,
+      users: rooms[roomCode].users,
+    })
+
+    // Send welcome message to the user
+    socket.emit("message", {
+      user: "System",
+      text: `Welcome to the chat room, ${username}!`,
+      timestamp: new Date().toISOString(),
+    })
+
+    // Broadcast to others in the room
+    socket.to(roomCode).emit("message", {
+      user: "System",
+      text: `${username} has joined the chat!`,
+      timestamp: new Date().toISOString(),
+    })
+  })
+
+  // Handle chat messages
+  socket.on("sendMessage", (message) => {
+    if (currentRoom) {
+      io.to(currentRoom).emit("message", {
+        user: currentUser,
+        ...message,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  })
+
+  // Handle image messages
+  socket.on("sendImage", (imageData) => {
+    if (currentRoom) {
+      io.to(currentRoom).emit("imageMessage", {
+        user: currentUser,
+        image: imageData,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  })
+
+  // Handle user disconnection
+  socket.on("disconnect", () => {
+    if (currentRoom && currentUser) {
+      // Remove user from room
+      if (rooms[currentRoom]) {
+        rooms[currentRoom].users = rooms[currentRoom].users.filter((user) => user.id !== socket.id)
+
+        // Delete room if empty
+        if (rooms[currentRoom].users.length === 0) {
+          delete rooms[currentRoom]
+        } else {
+          // Notify others that user has left
+          socket.to(currentRoom).emit("message", {
+            user: "System",
+            text: `${currentUser} has left the chat.`,
+            timestamp: new Date().toISOString(),
+          })
+
+          // Update user list for everyone in the room
+          io.to(currentRoom).emit("userLeft", {
+            user: currentUser,
+            users: rooms[currentRoom].users,
+          })
         }
-        rooms[roomCode].push(socket.id);
+      }
+    }
+  })
 
-        socket.to(roomCode).emit('userJoined', username);
-        console.log(`Server: ${username} joined room ${roomCode} (Socket ID: ${socket.id})`);
-        console.log('Server: Current rooms:', rooms);
-    });
+  // Handle explicit logout
+  socket.on("logout", () => {
+    socket.disconnect()
+  })
+})
 
-    socket.on('sendMessage', (message) => {
-        const user = users[socket.id];
-        if (user) {
-            console.log('Server (receive): Received sendMessage from', user.username, 'in room', user.roomCode, ':', message);
-            io.to(user.roomCode).emit('newMessage', {
-                username: user.username,
-                text: message
-            });
-            console.log('Server (emit): Emitted newMessage to room', user.roomCode);
-        }
-    });
-
-    socket.on('sendImage', (imageData) => {
-        const user = users[socket.id];
-        if (user) {
-            console.log('Server (receive): Received sendImage from', user.username, 'in room', user.roomCode, '(Data length:', imageData.length, 'first 50 chars:', imageData.substring(0, 50), ')');
-            io.to(user.roomCode).emit('newImage', {
-                username: user.username,
-                data: imageData
-            });
-            console.log('Server (emit): Emitted newImage to room', user.roomCode);
-        }
-    });
-
-    socket.on('disconnect', () => {
-        const user = users[socket.id];
-        if (user) {
-            const { username, roomCode } = user;
-            socket.leave(roomCode);
-            if (rooms[roomCode]) {
-                rooms[roomCode] = rooms[roomCode].filter(id => id !== socket.id);
-                if (rooms[roomCode].length === 0) {
-                    delete rooms[roomCode];
-                }
-            }
-            socket.to(roomCode).emit('userLeft', username);
-            delete users[socket.id];
-            console.log(`Server: ${username} left room ${roomCode} (Socket ID: ${socket.id})`);
-            console.log('Server: Current rooms:', rooms);
-        }
-        console.log('Server: A user disconnected:', socket.id);
-    });
-});
-
-const PORT = process.env.PORT || 3000;
+// Start the server
+const PORT = process.env.PORT || 3000
 server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
-});
+  console.log(`Server running on port ${PORT}`)
+})
