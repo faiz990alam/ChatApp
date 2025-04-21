@@ -154,15 +154,15 @@ body {
     background-color: #007bff;
     color: white;
     align-self: flex-end; /* Align to the right */
-}
-
-#messages li.me strong {
-    color: inherit; /* Ensure username text is also white */
+    margin-left: auto; /* Push to the right */
+    margin-right: 0;
 }
 
 #messages li:not(.me) {
     align-self: flex-start; /* Align to the left */
     background-color: #f0f0f0; /* A slightly different background */
+    margin-right: auto; /* Push to the left */
+    margin-left: 0;
 }
 
 #messages li strong {
@@ -216,7 +216,7 @@ body {
     display: none; /* Hide the default file input */
 }
 
-.input-area label[for="image-input"] {
+.input-area label[for="file-upload"] {
     background-color: #6c757d;
     color: white;
     border: none;
@@ -226,12 +226,56 @@ body {
     font-size: 1em;
 }
 
-.input-area label[for="image-input"]:hover {
+.input-area label[for="file-upload"]:hover {
     background-color: #5a6268;
+}
+
+/* Style for the "Camera" button */
+.input-area button#open-camera-button {
+    background-color: #00bfff; /* A different color to distinguish */
+}
+
+.input-area button#open-camera-button:hover {
+    background-color: #0080ff;
+}
+
+/* Footer Styling */
+.chat-footer {
+    text-align: center;
+    padding: 10px 0;
+    font-size: 0.8em;
+    color: #777;
+    border-top: 1px solid #eee;
+}
+
+.message-status {
+    font-size: 0.8em;
+    color: gray;
+    margin-left: 5px;
+}
+
+.single-tick::before {
+    content: '✔';
+}
+
+.double-tick::before {
+    content: '✔✔';
+    color: gray; /* Default color */
+}
+
+/* Style for delivered (blue) ticks - will be applied by JS later */
+.delivered-tick::before {
+    content: '✔✔';
+    color: #34B7F1; /* Blue color */
 }
 
 /* Responsive Design */
 @media (max-width: 480px) {
+    body {
+        align-items: flex-start; /* Align items to the top on mobile */
+        background-color: #fff; /* Solid background on mobile */
+    }
+
     .container {
         width: 100%;
         height: 100vh;
@@ -241,37 +285,62 @@ body {
         flex-direction: column;
     }
 
-    #login-screen, #chat-screen {
+    #login-screen {
         flex-grow: 1;
+        display: flex;
+        flex-direction: column;
         justify-content: center;
+        align-items: center;
+        padding: 20px;
+        height: 100vh;
+    }
+
+    .input-group {
+        width: 80%;
+        margin-bottom: 15px;
+    }
+
+    #join-button {
+        width: 80%;
     }
 
     #chat-screen {
-        flex-direction: column;
-        height: 100%;
+        position: fixed; /* Cover the entire screen */
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 100; /* Ensure it's on top of other elements if needed */
+        width: 100%; /* Override desktop width */
+        margin: 0; /* Remove desktop centering */
+        border: none; /* Remove desktop border */
+        border-radius: 0; /* Remove desktop border-radius */
+        background-color: #fff; /* Ensure a background color */
+        height: 100vh; /* Take full viewport height on mobile */
     }
 
-    #message-container {
-        flex-grow: 1;
+    .chat-header {
+        border-radius: 0;
     }
 
     .input-area {
-        flex-direction: column;
+        flex-direction: column; /* Stack input and buttons on small screens */
     }
 
     .input-area input[type="text"],
     .input-area button,
-    .input-area label[for="image-input"] {
+    .input-area label[for="file-upload"],
+    .input-area button#open-camera-button { /* Ensure camera button is included */
         width: 100%;
         margin-bottom: 10px;
     }
 
     #messages li {
-        max-width: 90%; /* Adjust for smaller screens */
+        max-width: 90%;
     }
 
     #messages li img {
-        max-height: 200px; /* Adjust for smaller screens */
+        max-height: 200px;
     }
 
     .chat-header div {
@@ -279,12 +348,86 @@ body {
         align-items: flex-end;
     }
 
-        .chat-header button {
-            margin-left: 0;
-            margin-bottom: 5px;
-            width: 100%;
-        }
-    } 
+    .chat-header button {
+        margin-left: 0;
+        margin-bottom: 5px;
+        width: 100%;
+    }
 
+    /* Responsive Camera Modal (Modified for Overlay) */
+    #camera-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.9); /* Darker background to hide chat */
+        justify-content: center;
+        align-items: center;
+        z-index: 1001; /* Higher z-index to be on top of chat */
+        display: none; /* Hidden by default, shown by JS */
+        flex-direction: column; /* Stack video and controls */
+        padding: 20px; /* Add some padding around the content */
+        box-sizing: border-box; /* Ensure padding is within width/height */
+    }
 
+    #camera-stream-container {
+        width: 80%; /* Adjust width of the camera window */
+        aspect-ratio: 9 / 16; /* Phone screen aspect ratio (portrait) */
+        overflow: hidden;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        max-width: 400px; /* Add a maximum width if needed */
+    }
 
+    #camera-stream {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover; /* Ensure camera feed fills the container */
+    }
+
+    #camera-controls {
+        display: flex;
+        /* flex-direction: column; Stack buttons vertically */
+        flex-wrap: wrap; /* Allow buttons to wrap to the next line */
+        gap: 10px;
+        justify-content: center; /* Center the buttons horizontally */
+        padding: 20px;
+        width: 80%; /* Take up most of the modal width */
+        max-width: 400px; /* Match the max-width of the camera container */
+        box-sizing: border-box;
+    }
+
+    #capture-button,
+    #upload-from-device-button,
+    #close-camera-button,
+    #camera-modal select {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        padding: 12px 20px;
+        cursor: pointer;
+        font-size: 1em;
+        min-width: 150px; /* Ensure buttons have a minimum width */
+        flex-grow: 1; /* Allow buttons to grow and take equal space */
+        box-sizing: border-box; /* Ensure padding doesn't increase width */
+    }
+
+    #camera-modal select {
+        padding: 10px;
+        min-width: 150px;
+        flex-grow: 1;
+    }
+
+    #capture-button:hover,
+    #upload-from-device-button:hover,
+    #close-camera-button:hover,
+    #camera-modal select:hover {
+        background-color: #0056b3;
+    }
+}
