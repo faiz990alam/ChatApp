@@ -1,0 +1,290 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    background-color: #f4f4f4;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.container {
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    width: 90%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    height: 500px; /* Ensure chat screen has a defined height */
+}
+
+/* Login Screen */
+#login-screen {
+    padding: 30px;
+    text-align: center;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+#login-screen h1 {
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.input-group {
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #555;
+    font-weight: bold;
+}
+
+.input-group input[type="text"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+#join-button {
+    background-color: #007bff;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    width: 100%;
+}
+
+#join-button:hover {
+    background-color: #0056b3;
+}
+
+.error-message {
+    color: red;
+    margin-top: 10px;
+}
+
+/* Chat Screen */
+#chat-screen {
+    display: none;
+    flex-direction: column;
+    flex-grow: 1;
+    height: 100%; /* Ensure chat screen takes full height of container */
+}
+
+.chat-header {
+    background-color: #f0f0f0;
+    padding: 15px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-header h2 {
+    margin: 0;
+    color: #333;
+    font-size: 1.2em;
+}
+
+.chat-header div {
+    display: flex;
+    gap: 10px;
+}
+
+#logout-button, #clear-chat-button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+#logout-button:hover, #clear-chat-button:hover {
+    background-color: #c82333;
+}
+
+#clear-chat-button {
+    background-color: #6c757d;
+}
+
+#clear-chat-button:hover {
+    background-color: #5a6268;
+}
+
+#message-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 15px;
+    display: flex;
+    flex-direction: column; /* Ensure messages stack correctly */
+}
+
+#messages {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#messages li {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    background-color: #e9e9e9;
+    color: #333;
+    word-break: break-word;
+    clear: both; /* Important for floating */
+    max-width: 80%; /* Prevent messages from taking full width */
+}
+
+#messages li.me {
+    background-color: #007bff;
+    color: white;
+    align-self: flex-end; /* Align to the right */
+}
+
+#messages li.me strong {
+    color: inherit; /* Ensure username text is also white */
+}
+
+#messages li:not(.me) {
+    align-self: flex-start; /* Align to the left */
+    background-color: #f0f0f0; /* A slightly different background */
+}
+
+#messages li strong {
+    font-weight: bold;
+    margin-right: 5px;
+    color: inherit;
+}
+
+#messages li img {
+    max-width: 100%;
+    max-height: 300px; /* Limit image height */
+    height: auto;
+    margin-top: 5px;
+    border-radius: 4px;
+    object-fit: contain; /* Try this to contain within max-height */
+}
+
+.input-area {
+    padding: 15px;
+    border-top: 1px solid #ddd;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    /* No flex-grow here, it should stay at its content height */
+    flex-shrink: 0; /* Prevent it from shrinking */
+}
+
+.input-area input[type="text"] {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.input-area button {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 15px;
+    cursor: pointer;
+    font-size: 1em;
+}
+
+.input-area button:hover {
+    background-color: #218838;
+}
+
+.input-area input[type="file"] {
+    display: none; /* Hide the default file input */
+}
+
+.input-area label[for="image-input"] {
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 15px;
+    cursor: pointer;
+    font-size: 1em;
+}
+
+.input-area label[for="image-input"]:hover {
+    background-color: #5a6268;
+}
+
+/* Responsive Design */
+@media (max-width: 480px) {
+    .container {
+        width: 100%;
+        height: 100vh;
+        border-radius: 0;
+        box-shadow: none;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #login-screen, #chat-screen {
+        flex-grow: 1;
+        justify-content: center;
+    }
+
+    #chat-screen {
+        flex-direction: column;
+        height: 100%;
+    }
+
+    #message-container {
+        flex-grow: 1;
+    }
+
+    .input-area {
+        flex-direction: column;
+    }
+
+    .input-area input[type="text"],
+    .input-area button,
+    .input-area label[for="image-input"] {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+
+    #messages li {
+        max-width: 90%; /* Adjust for smaller screens */
+    }
+
+    #messages li img {
+        max-height: 200px; /* Adjust for smaller screens */
+    }
+
+    .chat-header div {
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
+        .chat-header button {
+            margin-left: 0;
+            margin-bottom: 5px;
+            width: 100%;
+        }
+    } 
+
+
+

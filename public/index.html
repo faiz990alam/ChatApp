@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Chat</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Basic styling for the camera modal */
+        #camera-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        #camera-stream {
+            max-width: 80%;
+            max-height: 70%;
+            border-radius: 8px;
+        }
+
+        #camera-controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 20px;
+        }
+
+        #capture-button, #close-camera-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+
+        #capture-button:hover, #close-camera-button:hover {
+            background-color: #0056b3;
+        }
+
+        #upload-from-device-button {
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+
+        #upload-from-device-button:hover {
+            background-color: #5a6268;
+        }
+
+        #file-upload {
+            display: none; /* Still need a hidden file input */
+        }
+        /* Footer Styling */
+        .chat-footer {
+            text-align: center;
+            padding: 10px 0;
+            font-size: 0.8em;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="login-screen">
+            <h1>Join Chat</h1>
+            <div class="input-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" required>
+            </div>
+            <div class="input-group">
+                <label for="room-code">Room Code:</label>
+                <input type="text" id="room-code" required>
+            </div>
+            <button id="join-button">Join Room</button>
+            <p id="login-error" class="error-message"></p>
+        </div>
+
+        <div id="chat-screen" style="display: none;">
+            <div class="chat-header">
+                <h2>Chat Room: <span id="room-name"></span></h2>
+                <div>
+                    <button id="clear-chat-button">Clear Chat</button>
+                    <button id="logout-button">Logout</button>
+                </div>
+            </div>
+            <div id="message-container">
+                <ul id="messages"></ul>
+            </div>
+            <div class="input-area">
+                <input type="text" id="message-input" placeholder="Enter your message">
+                <button id="send-button">Send</button>
+                <button id="open-camera-button">Camera</button>
+                <input type="file" id="file-upload" accept="image/*"> </div>
+                <div class="chat-footer">
+                    &copy; Developed by Faizan Alam | Made in India
+                </div>
+        </div>
+    </div>
+
+    <div id="camera-modal">
+        <video id="camera-stream" autoplay playsinline></video>
+        <div id="camera-controls">
+            <button id="capture-button">Take Photo</button>
+            <button id="upload-from-device-button">Upload from Device</button>
+            <button id="close-camera-button">Close Camera</button>
+        </div>
+    </div>
+    
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
