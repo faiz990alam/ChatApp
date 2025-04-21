@@ -1,400 +1,444 @@
-const socket = io();
-
-// DOM elements (updated)
-const loginScreen = document.getElementById('login-screen');
-const chatScreen = document.getElementById('chat-screen');
-const usernameInput = document.getElementById('username');
-const roomCodeInput = document.getElementById('room-code');
-const joinButton = document.getElementById('join-button');
-const loginError = document.getElementById('login-error');
-const roomNameDisplay = document.getElementById('room-name');
-const messagesContainer = document.getElementById('message-container');
-const messagesList = document.getElementById('messages');
-const messageInput = document.getElementById('message-input');
-const sendButton = document.getElementById('send-button');
-const openCameraButton = document.getElementById('open-camera-button');
-const fileUpload = document.getElementById('file-upload');
-const logoutButton = document.getElementById('logout-button');
-const clearChatButton = document.getElementById('clear-chat-button');
-const cameraModal = document.getElementById('camera-modal');
-const cameraStream = document.getElementById('camera-stream');
-const captureButton = document.getElementById('capture-button');
-const uploadFromDeviceButton = document.getElementById('upload-from-device-button');
-const closeCameraButton = document.getElementById('close-camera-button');
-
-// Encryption Key
-const encryptionKey = 'your-secret-encryption-key'; // Replace with a strong, secret key
-
-let currentUsername = '';
-let currentRoomCode = '';
-const chatStorageKey = 'chatMessages';
-const userStorageKey = 'userSession';
-let capturedImage = null;
-let currentStream = null;
-const cameraSelect = document.createElement('select'); // Create a select dropdown
-
-// Function to encrypt a message
-function encryptMessage(message) {
-    return CryptoJS.AES.encrypt(message, encryptionKey).toString();
-}
-
-// Function to decrypt a message
-function decryptMessage(encryptedMessage) {
-    try {
-        const bytes = CryptoJS.AES.decrypt(encryptedMessage, encryptionKey);
-        return bytes.toString(CryptoJS.enc.Utf8);
-    } catch (error) {
-        console.error("Error decrypting message:", error);
-        return encryptedMessage; // Return the original if decryption fails
-    }
-}
-
-// Function to display a message
-function displayMessage(data, isMe = false) {
-    const li = document.createElement('li');
-    li.classList.toggle('me', isMe);
-    li.innerHTML = `<strong>${data.username}:</strong> ${data.text}`;
-    if (isMe) {
-        li.innerHTML += ` <span class="message-status single-tick"></span>`;
-    }
-    messagesList.appendChild(li);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    saveChat();
-}
-
-// Function to display an image message
-function displayImage(data, isMe = false) {
-    const li = document.createElement('li');
-    li.classList.toggle('me', isMe);
-    li.innerHTML = `<strong>${data.username}:</strong> <img src="${data.data}" alt="Image">`;
-    if (isMe) {
-        li.innerHTML += ` <span class="message-status single-tick"></span>`;
-    }
-    messagesList.appendChild(li);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    saveChat();
-}
-
-// Function to save the chat messages to local storage
-function saveChat() {
-    const messages = messagesList.innerHTML;
-    localStorage.setItem(chatStorageKey, messages);
-}
-
-// Function to load the chat messages from local storage
-function loadChat() {
-    const storedMessages = localStorage.getItem(chatStorageKey);
-    if (storedMessages) {
-        messagesList.innerHTML = storedMessages;
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-}
-
-// Function to save the user session to local storage
-function saveUserSession() {
-    const session = { username: currentUsername, roomCode: currentRoomCode };
-    localStorage.setItem(userStorageKey, JSON.stringify(session));
-}
-
-// Function to load the user session from local storage
-function loadUserSession() {
-    const storedSession = localStorage.getItem(userStorageKey);
-    if (storedSession) {
-        const session = JSON.parse(storedSession);
-        currentUsername = session.username;
-        currentRoomCode = session.roomCode;
-        roomNameDisplay.textContent = currentRoomCode;
-        loginScreen.style.display = 'none';
-        chatScreen.style.display = 'flex';
-        loadChat();
-        socket.emit('joinRoom', { username: currentUsername, roomCode: currentRoomCode });
-    }
-}
-
-// Event listener for joining a room
-joinButton.addEventListener('click', () => {
-    const username = usernameInput.value.trim();
-    const roomCode = roomCodeInput.value.trim();
-
-    if (username && roomCode) {
-        currentUsername = username;
-        currentRoomCode = roomCode;
-        console.log('Client (join): Emitting joinRoom:', { username, roomCode });
-        socket.emit('joinRoom', { username, roomCode });
-        loginScreen.style.display = 'none';
-        chatScreen.style.display = 'flex';
-        roomNameDisplay.textContent = roomCode;
-        loginError.textContent = '';
-        saveUserSession();
-        loadChat();
-    } else {
-        loginError.textContent = 'Please enter a username and room code.';
-    }
-});
-
-// Event listener for sending a text message
-sendButton.addEventListener('click', () => {
-    const message = messageInput.value.trim();
-    sendMessage(message);
-});
-
-messageInput.addEventListener('keypress', (event) => {
-    if (event.key === 'Enter') {
-        sendButton.click();
-    }
-});
-
-// Function to get available cameras
-async function getCameras() {
-    try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-        const videoOptions = [];
-        videoDevices.forEach(device => {
-            let label = device.label || `Camera ${videoOptions.length + 1}`;
-            if (label.toLowerCase().includes('back') || label.toLowerCase().includes('rear')) {
-                label = 'Rear Camera';
-            } else if (label.toLowerCase().includes('front')) {
-                label = 'Front Camera';
+document.addEventListener("DOMContentLoaded", () => {
+    // DOM Elements
+    const loginScreen = document.getElementById("login-screen")
+    const chatScreen = document.getElementById("chat-screen")
+    const joinBtn = document.getElementById("join-btn")
+    const logoutBtn = document.getElementById("logout-btn")
+    const usernameInput = document.getElementById("username")
+    const roomCodeInput = document.getElementById("room-code")
+    const roomTitle = document.getElementById("room-title")
+    const userCount = document.getElementById("user-count")
+    const usersList = document.getElementById("users-list")
+    const chatMessages = document.getElementById("chat-messages")
+    const chatForm = document.getElementById("chat-form")
+    const messageInput = document.getElementById("message-input")
+    const imageUpload = document.getElementById("image-upload")
+    const userCountElement = document.querySelector(".user-count")
+    const clearChatBtn = document.getElementById("clear-chat-btn")
+    const cameraBtn = document.getElementById("camera-btn")
+    const cameraModal = document.getElementById("camera-modal")
+    const closeModal = document.querySelector(".close-modal")
+    const switchCameraBtn = document.getElementById("switch-camera-btn")
+    const captureBtn = document.getElementById("capture-btn")
+    const cameraView = document.getElementById("camera-view")
+    const cameraCanvas = document.getElementById("camera-canvas")
+  
+    // Variables for camera
+    let stream = null
+    let facingMode = "user" // Start with front camera
+    let currentRoomMessages = []
+    let capturedImage = null
+  
+    // Initialize Socket.IO
+    const socket = io()
+  
+    // Join chat room
+    joinBtn.addEventListener("click", () => {
+      const username = usernameInput.value.trim()
+      const roomCode = roomCodeInput.value.trim()
+  
+      if (!username || !roomCode) {
+        alert("Please enter both username and room code")
+        return
+      }
+  
+      // Join room via socket
+      socket.emit("join", { username, roomCode })
+  
+      // Update UI
+      roomTitle.textContent = `Room: ${roomCode}`
+      loginScreen.classList.remove("active")
+      chatScreen.classList.add("active")
+  
+      // Store session info
+      sessionStorage.setItem("username", username)
+      sessionStorage.setItem("roomCode", roomCode)
+    })
+  
+    // Check for existing session
+    const savedUsername = sessionStorage.getItem("username")
+    const savedRoomCode = sessionStorage.getItem("roomCode")
+  
+    // Load saved messages from localStorage
+    function loadSavedMessages() {
+      const roomCode = sessionStorage.getItem("roomCode")
+      if (!roomCode) return
+  
+      const savedMessages = localStorage.getItem(`chat_messages_${roomCode}`)
+      if (savedMessages) {
+        try {
+          const messages = JSON.parse(savedMessages)
+          currentRoomMessages = messages
+  
+          // Display saved messages
+          chatMessages.innerHTML = ""
+          messages.forEach((message) => {
+            if (message.image) {
+              displayImageMessage(message)
+            } else {
+              displayMessage(message)
             }
-            videoOptions.push({ deviceId: device.deviceId, label: label });
-        });
-
-        cameraSelect.innerHTML = ''; // Clear previous options
-        // Remove duplicate labels and prioritize front/rear
-        const uniqueOptions = [];
-        const seenLabels = {};
-        videoOptions.forEach(option => {
-            if (!seenLabels[option.label]) {
-                uniqueOptions.push(option);
-                seenLabels[option.label] = true;
-            }
-        });
-
-        uniqueOptions.forEach(option => {
-            const optionElement = document.createElement('option');
-            optionElement.value = option.deviceId;
-            optionElement.textContent = option.label;
-            cameraSelect.appendChild(optionElement);
-        });
-
-        const cameraControls = cameraModal.querySelector('#camera-controls');
-        if (uniqueOptions.length > 1 && !cameraControls.contains(cameraSelect)) {
-            cameraControls.insertBefore(cameraSelect, captureButton); // Add it to the modal if multiple cameras
-        } else if (uniqueOptions.length <= 1 && cameraControls.contains(cameraSelect)) {
-            cameraControls.removeChild(cameraSelect); // Remove if only one or none
+          })
+  
+          // Scroll to bottom
+          chatMessages.scrollTop = chatMessages.scrollHeight
+        } catch (error) {
+          console.error("Error loading saved messages:", error)
         }
-
-    } catch (error) {
-        console.error('Error enumerating devices:', error);
-        alert('Could not access camera information.');
+      }
     }
-}
-
-// Function to start the camera with a specific device ID
-async function startCamera(deviceId) {
-    try {
-        const constraints = {
-            video: { deviceId: deviceId ? { exact: deviceId } : undefined },
-            audio: false
-        };
-        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-        cameraStream.srcObject = currentStream;
-    } catch (error) {
-        console.error('Error accessing camera:', error);
-        alert('Could not access the selected camera.');
-        cameraModal.style.display = 'none';
-        chatScreen.style.display = 'flex';
+  
+    // Save message to localStorage
+    function saveMessage(message) {
+      const roomCode = sessionStorage.getItem("roomCode")
+      if (!roomCode) return
+  
+      currentRoomMessages.push(message)
+      localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
     }
-}
-
-// Event listener to open the camera modal
-openCameraButton.addEventListener('click', async () => {
-    chatScreen.style.display = 'none'; // Hide the chat screen
-    cameraModal.style.display = 'flex'; // Show the camera modal
-    await getCameras(); // Populate the camera selection
-    startCamera(cameraSelect.value); // Start with the initially selected camera
-});
-
-// Event listener for camera selection change
-cameraSelect.addEventListener('change', () => {
-    stopCamera();
-    startCamera(cameraSelect.value);
-});
-
-// Event listener to capture a photo
-captureButton.addEventListener('click', () => {
-    if (currentStream) {
-        const canvas = document.createElement('canvas');
-        const videoTrack = currentStream.getVideoTracks()[0];
-        const settings = videoTrack.getSettings();
-        canvas.width = settings.width;
-        canvas.height = settings.height;
-        const context = canvas.getContext('2d');
-        context.drawImage(cameraStream, 0, 0, canvas.width, canvas.height);
-        capturedImage = canvas.toDataURL('image/png'); // Convert to base64
-        stopCamera();
-        sendMessage(capturedImage, true); // Send the captured image
-        cameraModal.style.display = 'none';
-        chatScreen.style.display = 'flex'; // Show the chat screen after sending
+  
+    if (savedUsername && savedRoomCode) {
+      usernameInput.value = savedUsername
+      roomCodeInput.value = savedRoomCode
+  
+      // Auto-join if session exists
+      socket.emit("join", {
+        username: savedUsername,
+        roomCode: savedRoomCode,
+      })
+  
+      roomTitle.textContent = `Room: ${savedRoomCode}`
+      loginScreen.classList.remove("active")
+      chatScreen.classList.add("active")
+  
+      // Load saved messages if session exists
+      loadSavedMessages()
     }
-});
-
-// Event listener for "Upload from Device" button in the modal
-uploadFromDeviceButton.addEventListener('click', () => {
-    fileUpload.click(); // Trigger the hidden file input
-});
-
-// Event listener for the hidden file input
-fileUpload.addEventListener('change', (event) => {
-    const file = event.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64Data = reader.result;
-            sendMessage(base64Data, true); // Send the uploaded image
-        };
-        reader.readAsDataURL(file);
-    }
-    cameraModal.style.display = 'none';
-    chatScreen.style.display = 'flex'; // Show chat after upload
-});
-
-// Event listener to close the camera modal
-closeCameraButton.addEventListener('click', () => {
-    cameraModal.style.display = 'none';
-    chatScreen.style.display = 'flex'; // Show the chat screen again
-    stopCamera();
-});
-
-// Function to stop the camera
-function stopCamera() {
-    if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-        cameraStream.srcObject = null;
-        currentStream = null;
-    }
-}
-
-// Modified sendMessage function to handle both text and image (with single tick on send)
-function sendMessage(data, isImage = false) {
-    if (isImage && data) {
-        console.log('Client (send): Emitting sendImage:', data.substring(0, 50));
-        socket.emit('sendImage', data);
-        displayImage({ username: currentUsername, data: data }, true);
-        // Immediately mark as sent (single tick)
-        const lastMessage = messagesList.lastElementChild;
-        if (lastMessage && lastMessage.classList.contains('me')) {
-            const statusSpan = lastMessage.querySelector('.message-status');
-            if (statusSpan) {
-                statusSpan.classList.remove('double-tick'); // Remove if it was added previously
-                statusSpan.classList.add('single-tick');
-            }
+  
+    // Send message
+    chatForm.addEventListener("submit", (e) => {
+      e.preventDefault()
+  
+      const messageText = messageInput.value.trim()
+  
+      if (messageText) {
+        // Emit message to server
+        socket.emit("sendMessage", { text: messageText })
+  
+        // Clear input
+        messageInput.value = ""
+        messageInput.focus()
+      }
+    })
+  
+    // Handle image upload
+    imageUpload.addEventListener("change", (e) => {
+      const file = e.target.files[0]
+  
+      if (file) {
+        if (!file.type.match("image.*")) {
+          alert("Please select an image file")
+          return
         }
-    } else if (!isImage && data.trim()) {
-        const encryptedText = encryptMessage(data);
-        console.log('Client (send): Emitting sendMessage (encrypted):', encryptedText);
-        socket.emit('sendMessage', encryptedText);
-        displayMessage({ username: currentUsername, text: data }, true); // Display original message
-        messageInput.value = '';
-        // Immediately mark as sent (single tick)
-        const lastMessage = messagesList.lastElementChild;
-        if (lastMessage && lastMessage.classList.contains('me')) {
-            const statusSpan = lastMessage.querySelector('.message-status');
-            if (statusSpan) {
-                statusSpan.classList.remove('double-tick'); // Remove if it was added previously
-                statusSpan.classList.add('single-tick');
-            }
+  
+        // No size limit for images
+  
+        const reader = new FileReader()
+  
+        reader.onload = (event) => {
+          const imageData = event.target.result
+          socket.emit("sendImage", imageData)
         }
+  
+        reader.readAsDataURL(file)
+  
+        // Reset file input
+        e.target.value = ""
+      }
+    })
+  
+    // Logout
+    logoutBtn.addEventListener("click", () => {
+      // Clear session
+      sessionStorage.removeItem("username")
+      sessionStorage.removeItem("roomCode")
+  
+      // Emit logout event
+      socket.emit("logout")
+  
+      // Refresh the page
+      window.location.reload()
+    })
+  
+    // Socket event listeners
+  
+    // Handle user joined event
+    socket.on("userJoined", ({ user, users }) => {
+      // Update users list
+      updateUsersList(users)
+    })
+  
+    // Handle user left event
+    socket.on("userLeft", ({ user, users }) => {
+      // Update users list
+      updateUsersList(users)
+    })
+  
+    // Handle incoming messages
+    socket.on("message", (message) => {
+      displayMessage(message)
+      saveMessage(message)
+  
+      // Scroll to bottom
+      chatMessages.scrollTop = chatMessages.scrollHeight
+    })
+  
+    // Handle incoming image messages
+    socket.on("imageMessage", (message) => {
+      displayImageMessage(message)
+      saveMessage(message)
+  
+      // Scroll to bottom
+      chatMessages.scrollTop = chatMessages.scrollHeight
+    })
+  
+    // Mobile sidebar toggle
+    userCountElement.addEventListener("click", () => {
+      const sidebar = document.querySelector(".chat-sidebar")
+      sidebar.classList.toggle("show")
+    })
+  
+    // Helper functions
+  
+    // Update users list
+    function updateUsersList(users) {
+      usersList.innerHTML = ""
+      userCount.textContent = users.length
+  
+      users.forEach((user) => {
+        const li = document.createElement("li")
+        li.textContent = user.username
+        usersList.appendChild(li)
+      })
     }
-}
-
-// To simulate a delivered state (this is a basic example and would need server-side logic)
-socket.on('messageDelivered', (messageData) => {
-    const messages = messagesList.querySelectorAll('li.me');
-    messages.forEach(msg => {
-        const textContent = msg.textContent.split(' ').slice(1, -1).join(' '); // Extract message text
-        if (textContent === messageData.text && msg.querySelector('.message-status.single-tick')) {
-            const statusSpan = msg.querySelector('.message-status');
-            statusSpan.classList.remove('single-tick');
-            statusSpan.classList.add('delivered-tick');
-        } else if (msg.querySelector('.message-status.single-tick') && messageData.isImage && msg.innerHTML.includes(`<img src="${messageData.data.substring(0, 50)}`)) {
-            const statusSpan = msg.querySelector('.message-status');
-            statusSpan.classList.remove('single-tick');
-            statusSpan.classList.add('delivered-tick');
+  
+    // Display text message
+    function displayMessage(message) {
+      const div = document.createElement("div")
+      const currentUser = sessionStorage.getItem("username")
+  
+      if (message.user === "System") {
+        div.classList.add("message", "system")
+      } else if (message.user === currentUser) {
+        div.classList.add("message", "self")
+      } else {
+        div.classList.add("message", "other")
+      }
+  
+      // Create message header
+      const header = document.createElement("div")
+      header.classList.add("message-header")
+  
+      const username = document.createElement("span")
+      username.textContent = message.user
+  
+      const timestamp = document.createElement("span")
+      timestamp.textContent = formatTime(new Date(message.timestamp))
+  
+      header.appendChild(username)
+      header.appendChild(timestamp)
+  
+      // Create message text
+      const text = document.createElement("div")
+      text.classList.add("message-text")
+      text.textContent = message.text
+  
+      // Append to message div
+      div.appendChild(header)
+      div.appendChild(text)
+  
+      // Add to chat
+      chatMessages.appendChild(div)
+    }
+  
+    // Display image message
+    function displayImageMessage(message) {
+      const div = document.createElement("div")
+      const currentUser = sessionStorage.getItem("username")
+  
+      if (message.user === currentUser) {
+        div.classList.add("message", "self")
+      } else {
+        div.classList.add("message", "other")
+      }
+  
+      // Create message header
+      const header = document.createElement("div")
+      header.classList.add("message-header")
+  
+      const username = document.createElement("span")
+      username.textContent = message.user
+  
+      const timestamp = document.createElement("span")
+      timestamp.textContent = formatTime(new Date(message.timestamp))
+  
+      header.appendChild(username)
+      header.appendChild(timestamp)
+  
+      // Create image element
+      const img = document.createElement("img")
+      img.src = message.image
+      img.alt = "Shared image"
+      img.classList.add("message-image")
+  
+      // Append to message div
+      div.appendChild(header)
+      div.appendChild(img)
+  
+      // Add to chat
+      chatMessages.appendChild(div)
+    }
+  
+    // Format timestamp
+    function formatTime(date) {
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    }
+  
+    // Clear chat button
+    clearChatBtn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to clear the chat history?")) {
+        // Clear UI
+        chatMessages.innerHTML = ""
+  
+        // Clear localStorage for this room
+        const roomCode = sessionStorage.getItem("roomCode")
+        if (roomCode) {
+          localStorage.removeItem(`chat_messages_${roomCode}`)
+          currentRoomMessages = []
         }
-    });
-});
-
-// Event listener for receiving a new text message (with decryption)
-socket.on('newMessage', (data) => {
-    console.log('Client (receive): Received newMessage (encrypted):', data);
-    if (data.username !== currentUsername) {
-        const decryptedText = decryptMessage(data.text);
-        displayMessage({ ...data, text: decryptedText });
+      }
+    })
+  
+    // Camera button
+    cameraBtn.addEventListener("click", (e) => {
+      e.preventDefault() // Prevent form submission
+      openCamera()
+    })
+  
+    // Close camera modal
+    closeModal.addEventListener("click", () => {
+      closeCamera()
+    })
+  
+    // Switch camera
+    switchCameraBtn.addEventListener("click", () => {
+      facingMode = facingMode === "user" ? "environment" : "user"
+      openCamera() // Reopen with new facing mode
+    })
+  
+    // Capture photo
+    captureBtn.addEventListener("click", () => {
+      const context = cameraCanvas.getContext("2d")
+      const previewContainer = document.getElementById("preview-container")
+      const previewImage = document.getElementById("preview-image")
+      const cameraButtons = document.getElementById("camera-buttons")
+      const previewButtons = document.getElementById("preview-buttons")
+  
+      // Set canvas dimensions to match video
+      cameraCanvas.width = cameraView.videoWidth
+      cameraCanvas.height = cameraView.videoHeight
+  
+      // Draw the video frame to the canvas
+      context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
+  
+      // Get the image data as base64
+      capturedImage = cameraCanvas.toDataURL("image/jpeg")
+  
+      // Show preview
+      previewImage.src = capturedImage
+      cameraView.style.display = "none"
+      previewContainer.style.display = "block"
+      cameraButtons.style.display = "none"
+      previewButtons.style.display = "flex"
+    })
+  
+    // Retake photo
+    document.getElementById("retake-btn").addEventListener("click", () => {
+      const previewContainer = document.getElementById("preview-container")
+      const cameraButtons = document.getElementById("camera-buttons")
+      const previewButtons = document.getElementById("preview-buttons")
+  
+      // Hide preview, show camera
+      previewContainer.style.display = "none"
+      cameraView.style.display = "block"
+      previewButtons.style.display = "none"
+      cameraButtons.style.display = "flex"
+      capturedImage = null
+    })
+  
+    // Send photo
+    document.getElementById("send-photo-btn").addEventListener("click", () => {
+      if (capturedImage) {
+        // Send the image
+        socket.emit("sendImage", capturedImage)
+        capturedImage = null
+  
+        // Close the camera modal
+        closeCamera()
+      }
+    })
+  
+    // Open camera
+    function openCamera() {
+      // Reset UI state
+      const previewContainer = document.getElementById("preview-container")
+      const cameraButtons = document.getElementById("camera-buttons")
+      const previewButtons = document.getElementById("preview-buttons")
+  
+      previewContainer.style.display = "none"
+      cameraView.style.display = "block"
+      previewButtons.style.display = "none"
+      cameraButtons.style.display = "flex"
+  
+      // Stop any existing stream
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop())
+      }
+  
+      // Get camera access
+      navigator.mediaDevices
+        .getUserMedia({
+          video: { facingMode: facingMode },
+          audio: false,
+        })
+        .then((videoStream) => {
+          stream = videoStream
+          cameraView.srcObject = stream
+          cameraModal.style.display = "block"
+        })
+        .catch((error) => {
+          console.error("Error accessing camera:", error)
+          alert("Could not access the camera. Please check permissions.")
+        })
     }
-});
-
-// Event listener for receiving a new image message
-socket.on('newImage', (data) => {
-    console.log('Client (receive): Received newImage:', data);
-    if (data.username !== currentUsername) {
-        displayImage({ username: data.username, data: data.data }, false);
+  
+    // Close camera
+    function closeCamera() {
+      cameraModal.style.display = "none"
+      capturedImage = null
+  
+      // Stop all tracks
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop())
+        stream = null
+      }
     }
-});
-
-// Event listener for user joined notification
-socket.on('userJoined', (username) => {
-    console.log('Client (system): User joined:', username);
-    const li = document.createElement('li');
-    li.classList.add('system-message');
-    li.textContent = `${username} joined the room.`;
-    messagesList.appendChild(li);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-});
-
-// Event listener for user left notification
-socket.on('userLeft', (username) => {
-    console.log('Client (system): User left:', username);
-    const li = document.createElement('li');
-    li.classList.add('system-message');
-    li.textContent = `${username} left the room.`;
-    messagesList.appendChild(li);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-});
-
-socket.on('disconnect', () => {
-    console.log('Client (system): Disconnected from server.');
-});
-
-socket.on('connect', () => {
-    console.log('Client (system): Connected to server with ID:', socket.id);
-    loadUserSession(); // Attempt to load session on connect
-});
-
-// Event listener for clear chat button
-clearChatButton.addEventListener('click', () => {
-    messagesList.innerHTML = '';
-    localStorage.removeItem(chatStorageKey); // Clear stored chat as well
-});
-
-logoutButton.addEventListener('click', () => {
-    console.log('Client (logout): Logout clicked.');
-    loginScreen.style.display = 'flex';
-    chatScreen.style.display = 'none';
-    messagesList.innerHTML = '';
-    localStorage.removeItem(chatStorageKey);
-    localStorage.removeItem(userStorageKey); // Clear user session on logout
-    currentUsername = '';
-    currentRoomCode = '';
-    socket.disconnect();
-});
-
-// Initial setup: Add camera selection to the modal
-cameraModal.addEventListener('show', async () => {
-    await getCameras();
-});
-
-// Load user session on initial load
-loadUserSession();
+  
+    // Close modal if clicked outside
+    window.addEventListener("click", (e) => {
+      if (e.target === cameraModal) {
+        closeCamera()
+      }
+    })
+  })
+  
