@@ -1,4 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
+    // Set current year in footer
+    document.getElementById("current-year").textContent = new Date().getFullYear().toString()
+  
     // DOM Elements
     const loginScreen = document.getElementById("login-screen")
     const chatScreen = document.getElementById("chat-screen")
@@ -22,12 +25,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const captureBtn = document.getElementById("capture-btn")
     const cameraView = document.getElementById("camera-view")
     const cameraCanvas = document.getElementById("camera-canvas")
+    const chatSidebar = document.getElementById("chat-sidebar")
+    const closeSidebar = document.getElementById("close-sidebar")
+    const loadingOverlay = document.getElementById("loading-overlay")
   
     // Variables for camera
     let stream = null
     let facingMode = "user" // Start with front camera
     let currentRoomMessages = []
     let capturedImage = null
+    let isProcessingImage = false
   
     // Initialize Socket.IO
     const socket = io()
@@ -38,7 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const roomCode = roomCodeInput.value.trim()
   
       if (!username || !roomCode) {
-        alert("Please enter both username and room code")
+        alert("Please enter both your name and room code")
         return
       }
   
@@ -141,13 +148,34 @@ document.addEventListener("DOMContentLoaded", () => {
           return
         }
   
-        // No size limit for images
+        // Show loading overlay
+        loadingOverlay.style.display = "flex"
+        isProcessingImage = true
   
         const reader = new FileReader()
   
         reader.onload = (event) => {
           const imageData = event.target.result
-          socket.emit("sendImage", imageData)
+  
+          // Process image to prevent app from crashing
+          processImage(imageData)
+            .then((processedImage) => {
+              socket.emit("sendImage", processedImage)
+              isProcessingImage = false
+              loadingOverlay.style.display = "none"
+            })
+            .catch((error) => {
+              console.error("Error processing image:", error)
+              alert("There was an error processing your image. Please try again with a smaller image.")
+              isProcessingImage = false
+              loadingOverlay.style.display = "none"
+            })
+        }
+  
+        reader.onerror = () => {
+          alert("Error reading the image file")
+          isProcessingImage = false
+          loadingOverlay.style.display = "none"
         }
   
         reader.readAsDataURL(file)
@@ -157,8 +185,61 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     })
   
+    // Process image to prevent app from crashing with large images
+    function processImage(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => {
+          // Create a canvas to resize the image if needed
+          const canvas = document.createElement("canvas")
+          const ctx = canvas.getContext("2d")
+  
+          // Set maximum dimensions
+          const MAX_WIDTH = 1200
+          const MAX_HEIGHT = 1200
+  
+          let width = img.width
+          let height = img.height
+  
+          // Resize if needed
+          if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+            if (width > height) {
+              height = Math.round(height * (MAX_WIDTH / width))
+              width = MAX_WIDTH
+            } else {
+              width = Math.round(width * (MAX_HEIGHT / height))
+              height = MAX_HEIGHT
+            }
+          }
+  
+          // Set canvas dimensions
+          canvas.width = width
+          canvas.height = height
+  
+          // Draw image on canvas
+          ctx.drawImage(img, 0, 0, width, height)
+  
+          // Get compressed image
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.8)
+          resolve(compressedDataUrl)
+        }
+  
+        img.onerror = () => {
+          reject(new Error("Failed to load image"))
+        }
+  
+        img.src = dataUrl
+      })
+    }
+  
     // Logout
     logoutBtn.addEventListener("click", () => {
+      // Prevent logout if processing image
+      if (isProcessingImage) {
+        alert("Please wait until image processing is complete")
+        return
+      }
+  
       // Clear session
       sessionStorage.removeItem("username")
       sessionStorage.removeItem("roomCode")
@@ -204,8 +285,23 @@ document.addEventListener("DOMContentLoaded", () => {
   
     // Mobile sidebar toggle
     userCountElement.addEventListener("click", () => {
-      const sidebar = document.querySelector(".chat-sidebar")
-      sidebar.classList.toggle("show")
+      chatSidebar.classList.add("show")
+    })
+  
+    // Close sidebar button
+    closeSidebar.addEventListener("click", () => {
+      chatSidebar.classList.remove("show")
+    })
+  
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener("click", (e) => {
+      if (
+        chatSidebar.classList.contains("show") &&
+        !chatSidebar.contains(e.target) &&
+        !userCountElement.contains(e.target)
+      ) {
+        chatSidebar.classList.remove("show")
+      }
     })
   
     // Helper functions
@@ -241,9 +337,11 @@ document.addEventListener("DOMContentLoaded", () => {
   
       const username = document.createElement("span")
       username.textContent = message.user
+      username.classList.add("message-username")
   
       const timestamp = document.createElement("span")
       timestamp.textContent = formatTime(new Date(message.timestamp))
+      timestamp.classList.add("message-timestamp")
   
       header.appendChild(username)
       header.appendChild(timestamp)
@@ -278,9 +376,11 @@ document.addEventListener("DOMContentLoaded", () => {
   
       const username = document.createElement("span")
       username.textContent = message.user
+      username.classList.add("message-username")
   
       const timestamp = document.createElement("span")
       timestamp.textContent = formatTime(new Date(message.timestamp))
+      timestamp.classList.add("message-timestamp")
   
       header.appendChild(username)
       header.appendChild(timestamp)
@@ -290,6 +390,21 @@ document.addEventListener("DOMContentLoaded", () => {
       img.src = message.image
       img.alt = "Shared image"
       img.classList.add("message-image")
+  
+      // Add loading indicator
+      img.onload = () => {
+        // Image loaded successfully
+      }
+  
+      img.onerror = () => {
+        // Replace with error message if image fails to load
+        img.style.display = "none"
+        const errorText = document.createElement("div")
+        errorText.textContent = "[Image could not be displayed]"
+        errorText.style.fontStyle = "italic"
+        errorText.style.color = "#999"
+        div.appendChild(errorText)
+      }
   
       // Append to message div
       div.appendChild(header)
@@ -379,12 +494,28 @@ document.addEventListener("DOMContentLoaded", () => {
     // Send photo
     document.getElementById("send-photo-btn").addEventListener("click", () => {
       if (capturedImage) {
-        // Send the image
-        socket.emit("sendImage", capturedImage)
-        capturedImage = null
+        // Show loading overlay
+        loadingOverlay.style.display = "flex"
+        isProcessingImage = true
   
-        // Close the camera modal
-        closeCamera()
+        // Process image before sending
+        processImage(capturedImage)
+          .then((processedImage) => {
+            // Send the image
+            socket.emit("sendImage", processedImage)
+            capturedImage = null
+            isProcessingImage = false
+            loadingOverlay.style.display = "none"
+  
+            // Close the camera modal
+            closeCamera()
+          })
+          .catch((error) => {
+            console.error("Error processing camera image:", error)
+            alert("There was an error processing your image. Please try again.")
+            isProcessingImage = false
+            loadingOverlay.style.display = "none"
+          })
       }
     })
   
