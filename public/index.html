@@ -3,25 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Real-Time Chat</title>
-  <link rel="stylesheet" href="style.css">
+  <title>ShieldTalk</title>
+  <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
   <!-- Login Screen -->
   <div id="login-screen" class="screen active">
     <div class="login-container">
-      <h1>Real-Time Chat</h1>
+      <h1>ShieldTalk</h1>
       <div class="login-form">
         <div class="input-group">
-          <label for="username">Username</label>
-          <input type="text" id="username" placeholder="Enter your username" required>
+          <label for="username">Name</label>
+          <input type="text" id="username" placeholder="Enter your name" required>
         </div>
         <div class="input-group">
           <label for="room-code">Room Code</label>
           <input type="text" id="room-code" placeholder="Enter room code" required>
         </div>
         <button id="join-btn" class="btn">Join Chat</button>
+      </div>
+      <div class="encryption-notice">
+        <i class="fas fa-lock"></i>
+        <p>All user data is end-to-end encrypted</p>
+      </div>
+      <div class="login-footer">
+        <p>&copy; <span id="current-year"></span> | Developed by Faizan Alam</p>
       </div>
     </div>
   </div>
@@ -30,17 +37,26 @@
   <div id="chat-screen" class="screen">
     <div class="chat-container">
       <div class="chat-header">
-        <h2 id="room-title">Chat Room</h2>
-        <div class="user-count">
-          <i class="fas fa-users"></i>
-          <span id="user-count">0</span>
+        <div class="header-left">
+          <h2 id="room-title">Chat Room</h2>
         </div>
-        <button id="clear-chat-btn" class="btn btn-small">Clear Chat</button>
-        <button id="logout-btn" class="btn btn-small">Logout</button>
+        <div class="header-right">
+          <div class="user-count">
+            <i class="fas fa-users"></i>
+            <span id="user-count">0</span>
+          </div>
+          <button id="clear-chat-btn" class="btn btn-small">Clear</button>
+          <button id="logout-btn" class="btn btn-small">Logout</button>
+        </div>
       </div>
       
-      <div class="chat-sidebar">
-        <h3>Users</h3>
+      <div class="chat-sidebar" id="chat-sidebar">
+        <div class="sidebar-header">
+          <h3>Users</h3>
+          <button id="close-sidebar" class="close-sidebar">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
         <ul id="users-list"></ul>
       </div>
       
@@ -75,28 +91,34 @@
   </div>
 
   <div id="camera-modal" class="modal">
-  <div class="modal-content">
-    <span class="close-modal">&times;</span>
-    <h2>Take a Photo</h2>
-    <div class="camera-container">
-      <video id="camera-view" autoplay playsinline></video>
-      <canvas id="camera-canvas" style="display:none;"></canvas>
-      <div id="preview-container" style="display:none;">
-        <img id="preview-image" alt="Preview">
+    <div class="modal-content">
+      <span class="close-modal">&times;</span>
+      <h2>Take a Photo</h2>
+      <div class="camera-container">
+        <video id="camera-view" autoplay playsinline></video>
+        <canvas id="camera-canvas" style="display:none;"></canvas>
+        <div id="preview-container" style="display:none;">
+          <img id="preview-image" alt="Preview">
+        </div>
       </div>
-    </div>
-    <div class="camera-controls">
-      <div id="camera-buttons">
-        <button id="switch-camera-btn" class="btn">Switch Camera</button>
-        <button id="capture-btn" class="btn">Capture</button>
-      </div>
-      <div id="preview-buttons" style="display:none;">
-        <button id="retake-btn" class="btn">Retake</button>
-        <button id="send-photo-btn" class="btn">Send</button>
+      <div class="camera-controls">
+        <div id="camera-buttons">
+          <button id="switch-camera-btn" class="btn">Switch Camera</button>
+          <button id="capture-btn" class="btn">Capture</button>
+        </div>
+        <div id="preview-buttons" style="display:none;">
+          <button id="retake-btn" class="btn">Retake</button>
+          <button id="send-photo-btn" class="btn">Send</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Processing image...</p>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
