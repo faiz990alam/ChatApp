@@ -1,6 +1,13 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // Set current year in footer
-  document.getElementById("current-year").textContent = new Date().getFullYear().toString()
+  // Set current year in footer and menu
+  const currentYear = new Date().getFullYear().toString()
+  document.getElementById("current-year").textContent = currentYear
+
+  // Set the year in the menu footer when it's created
+  const menuYearElement = document.getElementById("menu-year")
+  if (menuYearElement) {
+    menuYearElement.textContent = currentYear
+  }
 
   // DOM Elements
   const loginScreen = document.getElementById("login-screen")
@@ -42,6 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentRoomMessages = []
   let capturedImage = null
   let isProcessingImage = false
+  let hasBackCamera = false // Flag to track if device has a back camera
 
   // Initialize Socket.IO
   const socket = io()
@@ -196,6 +204,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function processImage(dataUrl) {
     return new Promise((resolve, reject) => {
       const img = new Image()
+      // Set crossOrigin to anonymous to avoid CORS issues
+      img.crossOrigin = "anonymous"
+
       img.onload = () => {
         // Create a canvas to resize the image if needed
         const canvas = document.createElement("canvas")
@@ -215,7 +226,7 @@ document.addEventListener("DOMContentLoaded", () => {
             width = MAX_WIDTH
           } else {
             width = Math.round(width * (MAX_HEIGHT / height))
-            height = MAX_HEIGHT
+            width = MAX_HEIGHT
           }
         }
 
@@ -536,6 +547,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
+  // Check if device has multiple cameras
+  async function checkForCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter((device) => device.kind === "videoinput")
+      hasBackCamera = videoDevices.length > 1
+
+      // If no back camera is available, disable the switch camera button
+      if (!hasBackCamera) {
+        switchCameraBtn.disabled = true
+        switchCameraBtn.style.opacity = "0.5"
+        switchCameraBtn.title = "No additional cameras detected"
+      } else {
+        switchCameraBtn.disabled = false
+        switchCameraBtn.style.opacity = "1"
+        switchCameraBtn.title = "Switch camera"
+      }
+    } catch (err) {
+      console.error("Error checking for cameras:", err)
+    }
+  }
+
   // Camera button
   cameraBtn.addEventListener("click", (e) => {
     e.preventDefault() // Prevent form submission
@@ -544,6 +577,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Switch camera
   switchCameraBtn.addEventListener("click", () => {
+    if (!hasBackCamera) return // Don't do anything if there's no back camera
+
     // Toggle between front and back camera
     facingMode = facingMode === "user" ? "environment" : "user"
 
@@ -578,38 +613,51 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Capture photo
   captureBtn.addEventListener("click", () => {
-    const context = cameraCanvas.getContext("2d")
+    if (!stream) {
+      console.error("No camera stream available")
+      return
+    }
+
     const previewContainer = document.getElementById("preview-container")
     const previewImage = document.getElementById("preview-image")
     const cameraButtons = document.getElementById("camera-buttons")
     const previewButtons = document.getElementById("preview-buttons")
 
-    // Set canvas dimensions to match video
-    cameraCanvas.width = cameraView.videoWidth
-    cameraCanvas.height = cameraView.videoHeight
+    try {
+      // Set canvas dimensions to match video
+      cameraCanvas.width = cameraView.videoWidth
+      cameraCanvas.height = cameraView.videoHeight
 
-    // Draw the video frame to the canvas
-    if (facingMode === "user") {
-      // For front camera, flip the image horizontally when drawing to canvas
-      // to counteract the mirrored display but save the correct orientation
-      context.save()
-      context.scale(-1, 1)
-      context.drawImage(cameraView, -cameraCanvas.width, 0, cameraCanvas.width, cameraCanvas.height)
-      context.restore()
-    } else {
-      // For back camera, draw normally
-      context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
+      const context = cameraCanvas.getContext("2d")
+
+      // Clear the canvas first
+      context.clearRect(0, 0, cameraCanvas.width, cameraCanvas.height)
+
+      if (facingMode === "user") {
+        // For front camera, flip the image horizontally when drawing to canvas
+        // to counteract the mirrored display but save the correct orientation
+        context.save()
+        context.scale(-1, 1)
+        context.drawImage(cameraView, -cameraCanvas.width, 0, cameraCanvas.width, cameraCanvas.height)
+        context.restore()
+      } else {
+        // For back camera, draw normally
+        context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
+      }
+
+      // Get the image data as base64
+      capturedImage = cameraCanvas.toDataURL("image/jpeg", 0.9)
+
+      // Show preview
+      previewImage.src = capturedImage
+      cameraView.style.display = "none"
+      previewContainer.style.display = "block"
+      cameraButtons.style.display = "none"
+      previewButtons.style.display = "flex"
+    } catch (error) {
+      console.error("Error capturing image:", error)
+      alert("There was an error capturing the image. Please try again.")
     }
-
-    // Get the image data as base64
-    capturedImage = cameraCanvas.toDataURL("image/jpeg")
-
-    // Show preview
-    previewImage.src = capturedImage
-    cameraView.style.display = "none"
-    previewContainer.style.display = "block"
-    cameraButtons.style.display = "none"
-    previewButtons.style.display = "flex"
   })
 
   // Retake photo
@@ -670,6 +718,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
     }
+
+    // Check for available cameras
+    checkForCameras()
 
     // Get camera access
     navigator.mediaDevices
