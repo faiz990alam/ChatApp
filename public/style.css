@@ -245,6 +245,8 @@ a {
   padding: 1rem;
   flex: 1;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .menu-item {
@@ -279,6 +281,17 @@ a {
 .users-list-menu li {
   padding: 0.5rem 0.8rem;
   border-radius: var(--border-radius);
+}
+
+/* Add these styles for the menu footer */
+.menu-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+  text-align: center;
+  color: #777;
+  font-size: 0.9rem;
+  margin-top: 2rem;
 }
 
 /* Users Dropdown */
