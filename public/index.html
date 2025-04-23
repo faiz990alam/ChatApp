@@ -38,26 +38,47 @@
     <div class="chat-container">
       <div class="chat-header">
         <div class="header-left">
-          <h2 id="room-title">Chat Room</h2>
+          <h2 class="app-title">ShieldTalk</h2>
+          <span id="room-title">Room: Default</span>
         </div>
         <div class="header-right">
-          <div class="user-count">
+          <div class="user-count" title="Active Users">
             <i class="fas fa-users"></i>
             <span id="user-count">0</span>
           </div>
-          <button id="clear-chat-btn" class="btn btn-small">Clear</button>
-          <button id="logout-btn" class="btn btn-small">Logout</button>
+          <button id="menu-btn" class="menu-btn">
+            <i class="fas fa-ellipsis-v"></i>
+          </button>
         </div>
       </div>
       
-      <div class="chat-sidebar" id="chat-sidebar">
-        <div class="sidebar-header">
-          <h3>Users</h3>
-          <button id="close-sidebar" class="close-sidebar">
+      <!-- Side Menu -->
+      <div class="side-menu" id="side-menu">
+        <div class="side-menu-header">
+          <h3>Menu</h3>
+          <button id="close-menu" class="close-menu">
             <i class="fas fa-times"></i>
           </button>
         </div>
-        <ul id="users-list"></ul>
+        <div class="side-menu-content">
+          <button id="clear-chat-btn" class="menu-item">
+            <i class="fas fa-trash"></i> Clear Chat
+          </button>
+          <button id="logout-btn" class="menu-item">
+            <i class="fas fa-sign-out-alt"></i> Logout
+          </button>
+          <div class="menu-divider"></div>
+          <h4>Active Users</h4>
+          <ul id="users-list" class="users-list-menu"></ul>
+        </div>
+      </div>
+      
+      <!-- User List Dropdown -->
+      <div class="users-dropdown" id="users-dropdown">
+        <div class="dropdown-header">
+          <h3>Active Users</h3>
+        </div>
+        <ul id="users-dropdown-list"></ul>
       </div>
       
       <div class="chat-messages" id="chat-messages"></div>
@@ -73,12 +94,9 @@
               autocomplete="off"
             />
             <div class="image-options">
-              <label for="image-upload" class="image-upload-label">
-                <i class="fas fa-image"></i>
-              </label>
-              <button id="camera-btn" type="button" class="camera-btn">
+              <div class="media-btn" id="media-btn">
                 <i class="fas fa-camera"></i>
-              </button>
+              </div>
             </div>
             <input type="file" id="image-upload" accept="image/*" style="display: none">
           </div>
@@ -90,6 +108,25 @@
     </div>
   </div>
 
+  <!-- Media Options Modal -->
+  <div id="media-options-modal" class="modal media-options-modal">
+    <div class="modal-content media-options-content">
+      <span class="close-modal">&times;</span>
+      <h3>Share Media</h3>
+      <div class="media-options-buttons">
+        <button id="capture-camera-btn" class="media-option-btn">
+          <i class="fas fa-camera"></i>
+          <span>Capture from Camera</span>
+        </button>
+        <button id="upload-image-btn" class="media-option-btn">
+          <i class="fas fa-image"></i>
+          <span>Upload from Device</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera Modal -->
   <div id="camera-modal" class="modal">
     <div class="modal-content">
       <span class="close-modal">&times;</span>
