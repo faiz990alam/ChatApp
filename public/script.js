@@ -157,7 +157,63 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
-  // Handle image upload
+  // Optimized image processing function for large images
+  function optimizeImage(dataUrl, maxWidth = 1600, maxHeight = 1600, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+      // Create a new image to load the data URL
+      const img = new Image()
+
+      // Set up onload handler to process the image once it's loaded
+      img.onload = () => {
+        // Use setTimeout to prevent UI blocking
+        setTimeout(() => {
+          try {
+            // Calculate new dimensions while maintaining aspect ratio
+            let width = img.width
+            let height = img.height
+
+            // Only resize if the image is larger than the max dimensions
+            if (width > maxWidth || height > maxHeight) {
+              const ratio = Math.min(maxWidth / width, maxHeight / height)
+              width = Math.floor(width * ratio)
+              height = Math.floor(height * ratio)
+            }
+
+            // Create a canvas to draw the resized image
+            const canvas = document.createElement("canvas")
+            canvas.width = width
+            canvas.height = height
+
+            // Draw the image on the canvas
+            const ctx = canvas.getContext("2d")
+            ctx.drawImage(img, 0, 0, width, height)
+
+            // Get the compressed image as a data URL
+            const compressedDataUrl = canvas.toDataURL("image/jpeg", quality)
+
+            // Resolve the promise with the optimized image
+            resolve(compressedDataUrl)
+          } catch (error) {
+            console.error("Error optimizing image:", error)
+            // If optimization fails, return the original image
+            resolve(dataUrl)
+          }
+        }, 0) // Use setTimeout with 0ms to defer execution to the next event loop
+      }
+
+      // Set up error handler
+      img.onerror = () => {
+        console.error("Failed to load image for optimization")
+        // If loading fails, return the original image
+        resolve(dataUrl)
+      }
+
+      // Load the image
+      img.src = dataUrl
+    })
+  }
+
+  // Handle image upload with optimized processing
   imageUpload.addEventListener("change", (e) => {
     const file = e.target.files[0]
 
@@ -176,10 +232,26 @@ document.addEventListener("DOMContentLoaded", () => {
       reader.onload = (event) => {
         const imageData = event.target.result
 
-        // Send image directly without processing for large images
-        socket.emit("sendImage", imageData)
-        isProcessingImage = false
-        loadingOverlay.style.display = "none"
+        // Update loading message
+        document.querySelector(".loading-overlay p").textContent = "Optimizing image..."
+
+        // Optimize the image before sending
+        optimizeImage(imageData)
+          .then((optimizedImage) => {
+            // Update loading message
+            document.querySelector(".loading-overlay p").textContent = "Sending image..."
+
+            // Send the optimized image
+            socket.emit("sendImage", optimizedImage)
+            isProcessingImage = false
+            loadingOverlay.style.display = "none"
+          })
+          .catch((error) => {
+            console.error("Error during image optimization:", error)
+            alert("There was an error processing your image. Please try again with a smaller image.")
+            isProcessingImage = false
+            loadingOverlay.style.display = "none"
+          })
       }
 
       reader.onerror = () => {
@@ -664,18 +736,32 @@ document.addEventListener("DOMContentLoaded", () => {
       if (capturedImage) {
         // Show loading overlay
         loadingOverlay.style.display = "flex"
+        document.querySelector(".loading-overlay p").textContent = "Optimizing image..."
         isProcessingImage = true
 
-        // Send image directly without processing
-        socket.emit("sendImage", capturedImage)
-        console.log("Image sent to server")
+        // Optimize the captured image before sending
+        optimizeImage(capturedImage)
+          .then((optimizedImage) => {
+            // Update loading message
+            document.querySelector(".loading-overlay p").textContent = "Sending image..."
 
-        capturedImage = null
-        isProcessingImage = false
-        loadingOverlay.style.display = "none"
+            // Send the optimized image
+            socket.emit("sendImage", optimizedImage)
+            console.log("Optimized image sent to server")
 
-        // Close the camera modal
-        closeCamera()
+            capturedImage = null
+            isProcessingImage = false
+            loadingOverlay.style.display = "none"
+
+            // Close the camera modal
+            closeCamera()
+          })
+          .catch((error) => {
+            console.error("Error optimizing camera image:", error)
+            alert("There was an error processing your image. Please try again.")
+            isProcessingImage = false
+            loadingOverlay.style.display = "none"
+          })
       }
     })
   }
