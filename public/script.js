@@ -26,7 +26,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const imageUpload = document.getElementById("image-upload")
   const userCountElement = document.querySelector(".user-count")
   const clearChatBtn = document.getElementById("clear-chat-btn")
-  const cameraBtn = document.getElementById("camera-btn")
   const cameraModal = document.getElementById("camera-modal")
   const closeModal = document.querySelectorAll(".close-modal")
   const switchCameraBtn = document.getElementById("switch-camera-btn")
@@ -42,6 +41,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const captureCameraBtn = document.getElementById("capture-camera-btn")
   const uploadImageBtn = document.getElementById("upload-image-btn")
   const loadingOverlay = document.getElementById("loading-overlay")
+  const previewContainer = document.getElementById("preview-container")
+  const previewImage = document.getElementById("preview-image")
+  const cameraButtons = document.getElementById("camera-buttons")
+  const previewButtons = document.getElementById("preview-buttons")
+  const retakeBtn = document.getElementById("retake-btn")
+  const sendPhotoBtn = document.getElementById("send-photo-btn")
 
   // Variables for camera
   let stream = null
@@ -171,19 +176,10 @@ document.addEventListener("DOMContentLoaded", () => {
       reader.onload = (event) => {
         const imageData = event.target.result
 
-        // Process image to prevent app from crashing
-        processImage(imageData)
-          .then((processedImage) => {
-            socket.emit("sendImage", processedImage)
-            isProcessingImage = false
-            loadingOverlay.style.display = "none"
-          })
-          .catch((error) => {
-            console.error("Error processing image:", error)
-            alert("There was an error processing your image. Please try again with a smaller image.")
-            isProcessingImage = false
-            loadingOverlay.style.display = "none"
-          })
+        // Send image directly without processing for large images
+        socket.emit("sendImage", imageData)
+        isProcessingImage = false
+        loadingOverlay.style.display = "none"
       }
 
       reader.onerror = () => {
@@ -198,53 +194,6 @@ document.addEventListener("DOMContentLoaded", () => {
       e.target.value = ""
     }
   })
-
-  // Process image to prevent app from crashing with large images
-  function processImage(dataUrl) {
-    return new Promise((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => {
-        // Create a canvas to resize the image if needed
-        const canvas = document.createElement("canvas")
-        const ctx = canvas.getContext("2d")
-
-        // Set maximum dimensions
-        const MAX_WIDTH = 1200
-        const MAX_HEIGHT = 1200
-
-        let width = img.width
-        let height = img.height
-
-        // Resize if needed
-        if (width > MAX_WIDTH || height > MAX_HEIGHT) {
-          if (width > height) {
-            height = Math.round(height * (MAX_WIDTH / width))
-            width = MAX_WIDTH
-          } else {
-            width = Math.round(width * (MAX_HEIGHT / height))
-            height = MAX_HEIGHT
-          }
-        }
-
-        // Set canvas dimensions
-        canvas.width = width
-        canvas.height = height
-
-        // Draw image on canvas
-        ctx.drawImage(img, 0, 0, width, height)
-
-        // Get compressed image
-        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.8)
-        resolve(compressedDataUrl)
-      }
-
-      img.onerror = () => {
-        reject(new Error("Failed to load image"))
-      }
-
-      img.src = dataUrl
-    })
-  }
 
   // Logout
   logoutBtn.addEventListener("click", () => {
@@ -543,161 +492,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
-  // Check if device has multiple cameras
-  // async function checkForCameras() {
-  //   try {
-  //     const devices = await navigator.mediaDevices.enumerateDevices()
-  //     const videoDevices = devices.filter((device) => device.kind === "videoinput")
-  //     hasBackCamera = videoDevices.length > 1
+  // CAMERA FUNCTIONALITY
+  // -------------------
 
-  //     // If no back camera is available, disable the switch camera button
-  //     if (!hasBackCamera) {
-  //       switchCameraBtn.disabled = true
-  //       switchCameraBtn.style.opacity = "0.5"
-  //       switchCameraBtn.title = "No additional cameras detected"
-  //     } else {
-  //       switchCameraBtn.disabled = false
-  //       switchCameraBtn.style.opacity = "1"
-  //       switchCameraBtn.title = "Switch camera"
-  //     }
-  //   } catch (err) {
-  //     console.error("Error checking for cameras:", err)
-  //   }
-  // }
+  // Open camera function
+  function openCamera() {
+    console.log("Opening camera...")
 
-  // Camera button
-  cameraBtn.addEventListener("click", (e) => {
-    e.preventDefault() // Prevent form submission
-    openCamera()
-  })
-
-  // Switch camera
-  switchCameraBtn.addEventListener("click", () => {
-    // Toggle between front and back camera
-    facingMode = facingMode === "user" ? "environment" : "user"
-
-    // Stop current stream before reopening
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-      stream = null
-    }
-
-    // Reopen camera with new facing mode
-    navigator.mediaDevices
-      .getUserMedia({
-        video: { facingMode: facingMode },
-        audio: false,
-      })
-      .then((videoStream) => {
-        stream = videoStream
-        cameraView.srcObject = stream
-
-        // Apply mirror effect only for front camera
-        if (facingMode === "user") {
-          cameraView.classList.add("mirror")
-        } else {
-          cameraView.classList.remove("mirror")
-        }
-      })
-      .catch((error) => {
-        console.error("Error switching camera:", error)
-        alert("Could not switch camera. Please check permissions.")
-      })
-  })
-
-  // Capture photo
-  captureBtn.addEventListener("click", () => {
-    const context = cameraCanvas.getContext("2d")
-    const previewContainer = document.getElementById("preview-container")
-    const previewImage = document.getElementById("preview-image")
-    const cameraButtons = document.getElementById("camera-buttons")
-    const previewButtons = document.getElementById("preview-buttons")
-
-    // Set canvas dimensions to match video
-    cameraCanvas.width = cameraView.videoWidth
-    cameraCanvas.height = cameraView.videoHeight
-
-    // Draw the video frame to the canvas
-    if (facingMode === "user") {
-      // For front camera, flip the image horizontally when drawing to canvas
-      // to counteract the mirrored display but save the correct orientation
-      context.save()
-      context.scale(-1, 1)
-      context.drawImage(cameraView, -cameraCanvas.width, 0, cameraCanvas.width, cameraCanvas.height)
-      context.restore()
-    } else {
-      // For back camera, draw normally
-      context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
-    }
-
-    // Get the image data as base64
-    capturedImage = cameraCanvas.toDataURL("image/jpeg")
-
-    // Show preview
-    previewImage.src = capturedImage
-    cameraView.style.display = "none"
-    previewContainer.style.display = "block"
-    cameraButtons.style.display = "none"
-    previewButtons.style.display = "flex"
-  })
-
-  // Retake photo
-  document.getElementById("retake-btn").addEventListener("click", () => {
-    const previewContainer = document.getElementById("preview-container")
-    const cameraButtons = document.getElementById("camera-buttons")
-    const previewButtons = document.getElementById("preview-buttons")
-
-    // Hide preview, show camera
+    // Reset UI state
     previewContainer.style.display = "none"
     cameraView.style.display = "block"
     previewButtons.style.display = "none"
     cameraButtons.style.display = "flex"
     capturedImage = null
-  })
-
-  // Send photo
-  document.getElementById("send-photo-btn").addEventListener("click", () => {
-    if (capturedImage) {
-      // Show loading overlay
-      loadingOverlay.style.display = "flex"
-      isProcessingImage = true
-
-      // Process image before sending
-      processImage(capturedImage)
-        .then((processedImage) => {
-          // Send the image
-          socket.emit("sendImage", processedImage)
-          capturedImage = null
-          isProcessingImage = false
-          loadingOverlay.style.display = "none"
-
-          // Close the camera modal
-          closeCamera()
-        })
-        .catch((error) => {
-          console.error("Error processing camera image:", error)
-          alert("There was an error processing your image. Please try again.")
-          isProcessingImage = false
-          loadingOverlay.style.display = "none"
-        })
-    }
-  })
-
-  // Open camera
-  function openCamera() {
-    // Reset UI state
-    const previewContainer = document.getElementById("preview-container")
-    const cameraButtons = document.getElementById("camera-buttons")
-    const previewButtons = document.getElementById("preview-buttons")
-
-    previewContainer.style.display = "none"
-    cameraView.style.display = "block"
-    previewButtons.style.display = "none"
-    cameraButtons.style.display = "flex"
 
     // Stop any existing stream
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
+      stream = null
     }
 
     // Get camera access
@@ -707,6 +519,7 @@ document.addEventListener("DOMContentLoaded", () => {
         audio: false,
       })
       .then((videoStream) => {
+        console.log("Camera stream obtained successfully")
         stream = videoStream
         cameraView.srcObject = stream
 
@@ -725,8 +538,9 @@ document.addEventListener("DOMContentLoaded", () => {
       })
   }
 
-  // Close camera
+  // Close camera function
   function closeCamera() {
+    console.log("Closing camera...")
     cameraModal.style.display = "none"
     capturedImage = null
 
@@ -735,6 +549,135 @@ document.addEventListener("DOMContentLoaded", () => {
       stream.getTracks().forEach((track) => track.stop())
       stream = null
     }
+  }
+
+  // Capture from camera option
+  if (captureCameraBtn) {
+    captureCameraBtn.addEventListener("click", () => {
+      console.log("Capture camera button clicked")
+      mediaOptionsModal.style.display = "none"
+      openCamera()
+    })
+  }
+
+  // Switch camera button
+  if (switchCameraBtn) {
+    switchCameraBtn.addEventListener("click", () => {
+      console.log("Switch camera button clicked")
+      // Toggle between front and back camera
+      facingMode = facingMode === "user" ? "environment" : "user"
+
+      // Stop current stream before reopening
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop())
+      }
+
+      // Reopen camera with new facing mode
+      navigator.mediaDevices
+        .getUserMedia({
+          video: { facingMode: facingMode },
+          audio: false,
+        })
+        .then((videoStream) => {
+          console.log("Camera switched successfully")
+          stream = videoStream
+          cameraView.srcObject = stream
+
+          // Apply mirror effect only for front camera
+          if (facingMode === "user") {
+            cameraView.classList.add("mirror")
+          } else {
+            cameraView.classList.remove("mirror")
+          }
+        })
+        .catch((error) => {
+          console.error("Error switching camera:", error)
+          alert("Could not switch camera. Please check permissions.")
+        })
+    })
+  }
+
+  // Capture photo button
+  if (captureBtn) {
+    captureBtn.addEventListener("click", () => {
+      console.log("Capture button clicked")
+
+      try {
+        // Set canvas dimensions to match video
+        cameraCanvas.width = cameraView.videoWidth
+        cameraCanvas.height = cameraView.videoHeight
+
+        console.log("Canvas dimensions set:", cameraCanvas.width, "x", cameraCanvas.height)
+
+        const context = cameraCanvas.getContext("2d")
+
+        // Clear the canvas first
+        context.clearRect(0, 0, cameraCanvas.width, cameraCanvas.height)
+
+        if (facingMode === "user") {
+          // For front camera, flip the image horizontally when drawing to canvas
+          context.save()
+          context.scale(-1, 1)
+          context.drawImage(cameraView, -cameraCanvas.width, 0, cameraCanvas.width, cameraCanvas.height)
+          context.restore()
+          console.log("Front camera image captured (flipped)")
+        } else {
+          // For back camera, draw normally
+          context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
+          console.log("Back camera image captured")
+        }
+
+        // Get the image data as base64
+        capturedImage = cameraCanvas.toDataURL("image/jpeg")
+        console.log("Image captured successfully")
+
+        // Show preview
+        previewImage.src = capturedImage
+        cameraView.style.display = "none"
+        previewContainer.style.display = "block"
+        cameraButtons.style.display = "none"
+        previewButtons.style.display = "flex"
+      } catch (error) {
+        console.error("Error capturing image:", error)
+        alert("There was an error capturing the image. Please try again.")
+      }
+    })
+  }
+
+  // Retake photo button
+  if (retakeBtn) {
+    retakeBtn.addEventListener("click", () => {
+      console.log("Retake button clicked")
+      // Hide preview, show camera
+      previewContainer.style.display = "none"
+      cameraView.style.display = "block"
+      previewButtons.style.display = "none"
+      cameraButtons.style.display = "flex"
+      capturedImage = null
+    })
+  }
+
+  // Send photo button
+  if (sendPhotoBtn) {
+    sendPhotoBtn.addEventListener("click", () => {
+      console.log("Send photo button clicked")
+      if (capturedImage) {
+        // Show loading overlay
+        loadingOverlay.style.display = "flex"
+        isProcessingImage = true
+
+        // Send image directly without processing
+        socket.emit("sendImage", capturedImage)
+        console.log("Image sent to server")
+
+        capturedImage = null
+        isProcessingImage = false
+        loadingOverlay.style.display = "none"
+
+        // Close the camera modal
+        closeCamera()
+      }
+    })
   }
 
   // Close modal if clicked outside
