@@ -1,6 +1,13 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // Set current year in footer
-  document.getElementById("current-year").textContent = new Date().getFullYear().toString()
+  // Set current year in footer and menu
+  const currentYear = new Date().getFullYear().toString()
+  document.getElementById("current-year").textContent = currentYear
+
+  // Set the year in the menu footer when it's created
+  const menuYearElement = document.getElementById("menu-year")
+  if (menuYearElement) {
+    menuYearElement.textContent = currentYear
+  }
 
   // DOM Elements
   const loginScreen = document.getElementById("login-screen")
@@ -12,6 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const roomTitle = document.getElementById("room-title")
   const userCount = document.getElementById("user-count")
   const usersList = document.getElementById("users-list")
+  const usersDropdownList = document.getElementById("users-dropdown-list")
   const chatMessages = document.getElementById("chat-messages")
   const chatForm = document.getElementById("chat-form")
   const messageInput = document.getElementById("message-input")
@@ -20,13 +28,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const clearChatBtn = document.getElementById("clear-chat-btn")
   const cameraBtn = document.getElementById("camera-btn")
   const cameraModal = document.getElementById("camera-modal")
-  const closeModal = document.querySelector(".close-modal")
+  const closeModal = document.querySelectorAll(".close-modal")
   const switchCameraBtn = document.getElementById("switch-camera-btn")
   const captureBtn = document.getElementById("capture-btn")
   const cameraView = document.getElementById("camera-view")
   const cameraCanvas = document.getElementById("camera-canvas")
-  const chatSidebar = document.getElementById("chat-sidebar")
-  const closeSidebar = document.getElementById("close-sidebar")
+  const sideMenu = document.getElementById("side-menu")
+  const menuBtn = document.getElementById("menu-btn")
+  const closeMenu = document.getElementById("close-menu")
+  const usersDropdown = document.getElementById("users-dropdown")
+  const mediaBtn = document.getElementById("media-btn")
+  const mediaOptionsModal = document.getElementById("media-options-modal")
+  const captureCameraBtn = document.getElementById("capture-camera-btn")
+  const uploadImageBtn = document.getElementById("upload-image-btn")
   const loadingOverlay = document.getElementById("loading-overlay")
 
   // Variables for camera
@@ -283,38 +297,96 @@ document.addEventListener("DOMContentLoaded", () => {
     chatMessages.scrollTop = chatMessages.scrollHeight
   })
 
-  // Mobile sidebar toggle
-  userCountElement.addEventListener("click", () => {
-    chatSidebar.classList.add("show")
+  // Menu button
+  menuBtn.addEventListener("click", () => {
+    sideMenu.classList.add("show")
   })
 
-  // Close sidebar button
-  closeSidebar.addEventListener("click", () => {
-    chatSidebar.classList.remove("show")
+  // Close menu button
+  closeMenu.addEventListener("click", () => {
+    sideMenu.classList.remove("show")
   })
 
-  // Close sidebar when clicking outside on mobile
+  // Close menu when clicking outside
   document.addEventListener("click", (e) => {
     if (
-      chatSidebar.classList.contains("show") &&
-      !chatSidebar.contains(e.target) &&
+      sideMenu.classList.contains("show") &&
+      !sideMenu.contains(e.target) &&
+      e.target !== menuBtn &&
+      !menuBtn.contains(e.target)
+    ) {
+      sideMenu.classList.remove("show")
+    }
+  })
+
+  // User count click - show dropdown
+  userCountElement.addEventListener("click", (e) => {
+    e.stopPropagation()
+    usersDropdown.classList.toggle("show")
+  })
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (
+      usersDropdown.classList.contains("show") &&
+      !usersDropdown.contains(e.target) &&
+      e.target !== userCountElement &&
       !userCountElement.contains(e.target)
     ) {
-      chatSidebar.classList.remove("show")
+      usersDropdown.classList.remove("show")
     }
+  })
+
+  // Media button click - show options
+  mediaBtn.addEventListener("click", () => {
+    mediaOptionsModal.style.display = "block"
+  })
+
+  // Capture from camera option
+  captureCameraBtn.addEventListener("click", () => {
+    mediaOptionsModal.style.display = "none"
+    openCamera()
+  })
+
+  // Upload from device option
+  uploadImageBtn.addEventListener("click", () => {
+    mediaOptionsModal.style.display = "none"
+    imageUpload.click()
+  })
+
+  // Close modals
+  closeModal.forEach((closeBtn) => {
+    closeBtn.addEventListener("click", function () {
+      const modal = this.closest(".modal")
+      if (modal === cameraModal) {
+        closeCamera()
+      } else {
+        modal.style.display = "none"
+      }
+    })
   })
 
   // Helper functions
 
   // Update users list
   function updateUsersList(users) {
+    // Update side menu users list
     usersList.innerHTML = ""
+    // Update dropdown users list
+    usersDropdownList.innerHTML = ""
+    // Update user count
     userCount.textContent = users.length
 
     users.forEach((user) => {
+      // Add to side menu list
       const li = document.createElement("li")
       li.textContent = user.username
       usersList.appendChild(li)
+
+      // Add to dropdown list
+      const dropdownLi = document.createElement("li")
+      dropdownLi.textContent = user.username
+      usersDropdownList.appendChild(dropdownLi)
     })
   }
 
@@ -385,11 +457,26 @@ document.addEventListener("DOMContentLoaded", () => {
     header.appendChild(username)
     header.appendChild(timestamp)
 
+    // Create image container
+    const imageContainer = document.createElement("div")
+    imageContainer.classList.add("message-image-container")
+
     // Create image element
     const img = document.createElement("img")
     img.src = message.image
     img.alt = "Shared image"
     img.classList.add("message-image")
+
+    // Create download button
+    const downloadBtn = document.createElement("button")
+    downloadBtn.classList.add("download-image-btn")
+    downloadBtn.title = "Download image"
+    downloadBtn.innerHTML = '<i class="fas fa-download"></i>'
+
+    // Add download functionality
+    downloadBtn.addEventListener("click", () => {
+      downloadImage(message.image, `shieldtalk-image-${Date.now()}.jpg`)
+    })
 
     // Add loading indicator
     img.onload = () => {
@@ -403,15 +490,29 @@ document.addEventListener("DOMContentLoaded", () => {
       errorText.textContent = "[Image could not be displayed]"
       errorText.style.fontStyle = "italic"
       errorText.style.color = "#999"
-      div.appendChild(errorText)
+      imageContainer.appendChild(errorText)
     }
+
+    // Append to image container
+    imageContainer.appendChild(img)
+    imageContainer.appendChild(downloadBtn)
 
     // Append to message div
     div.appendChild(header)
-    div.appendChild(img)
+    div.appendChild(imageContainer)
 
     // Add to chat
     chatMessages.appendChild(div)
+  }
+
+  // Download image function
+  function downloadImage(dataUrl, filename) {
+    const link = document.createElement("a")
+    link.href = dataUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   // Format timestamp
@@ -431,8 +532,38 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.removeItem(`chat_messages_${roomCode}`)
         currentRoomMessages = []
       }
+
+      // Close the side menu after clearing
+      sideMenu.classList.remove("show")
+
+      // Refresh the page to reflect changes
+      setTimeout(() => {
+        window.location.reload()
+      }, 300)
     }
   })
+
+  // Check if device has multiple cameras
+  // async function checkForCameras() {
+  //   try {
+  //     const devices = await navigator.mediaDevices.enumerateDevices()
+  //     const videoDevices = devices.filter((device) => device.kind === "videoinput")
+  //     hasBackCamera = videoDevices.length > 1
+
+  //     // If no back camera is available, disable the switch camera button
+  //     if (!hasBackCamera) {
+  //       switchCameraBtn.disabled = true
+  //       switchCameraBtn.style.opacity = "0.5"
+  //       switchCameraBtn.title = "No additional cameras detected"
+  //     } else {
+  //       switchCameraBtn.disabled = false
+  //       switchCameraBtn.style.opacity = "1"
+  //       switchCameraBtn.title = "Switch camera"
+  //     }
+  //   } catch (err) {
+  //     console.error("Error checking for cameras:", err)
+  //   }
+  // }
 
   // Camera button
   cameraBtn.addEventListener("click", (e) => {
@@ -440,15 +571,38 @@ document.addEventListener("DOMContentLoaded", () => {
     openCamera()
   })
 
-  // Close camera modal
-  closeModal.addEventListener("click", () => {
-    closeCamera()
-  })
-
   // Switch camera
   switchCameraBtn.addEventListener("click", () => {
+    // Toggle between front and back camera
     facingMode = facingMode === "user" ? "environment" : "user"
-    openCamera() // Reopen with new facing mode
+
+    // Stop current stream before reopening
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      stream = null
+    }
+
+    // Reopen camera with new facing mode
+    navigator.mediaDevices
+      .getUserMedia({
+        video: { facingMode: facingMode },
+        audio: false,
+      })
+      .then((videoStream) => {
+        stream = videoStream
+        cameraView.srcObject = stream
+
+        // Apply mirror effect only for front camera
+        if (facingMode === "user") {
+          cameraView.classList.add("mirror")
+        } else {
+          cameraView.classList.remove("mirror")
+        }
+      })
+      .catch((error) => {
+        console.error("Error switching camera:", error)
+        alert("Could not switch camera. Please check permissions.")
+      })
   })
 
   // Capture photo
@@ -464,7 +618,17 @@ document.addEventListener("DOMContentLoaded", () => {
     cameraCanvas.height = cameraView.videoHeight
 
     // Draw the video frame to the canvas
-    context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
+    if (facingMode === "user") {
+      // For front camera, flip the image horizontally when drawing to canvas
+      // to counteract the mirrored display but save the correct orientation
+      context.save()
+      context.scale(-1, 1)
+      context.drawImage(cameraView, -cameraCanvas.width, 0, cameraCanvas.width, cameraCanvas.height)
+      context.restore()
+    } else {
+      // For back camera, draw normally
+      context.drawImage(cameraView, 0, 0, cameraCanvas.width, cameraCanvas.height)
+    }
 
     // Get the image data as base64
     capturedImage = cameraCanvas.toDataURL("image/jpeg")
@@ -545,6 +709,14 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((videoStream) => {
         stream = videoStream
         cameraView.srcObject = stream
+
+        // Apply mirror effect only for front camera (selfie mode)
+        if (facingMode === "user") {
+          cameraView.classList.add("mirror")
+        } else {
+          cameraView.classList.remove("mirror")
+        }
+
         cameraModal.style.display = "block"
       })
       .catch((error) => {
@@ -569,6 +741,8 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("click", (e) => {
     if (e.target === cameraModal) {
       closeCamera()
+    } else if (e.target === mediaOptionsModal) {
+      mediaOptionsModal.style.display = "none"
     }
   })
 })
