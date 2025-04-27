@@ -576,6 +576,7 @@ a {
   margin: 20px 0;
   overflow: hidden;
   border-radius: var(--border-radius);
+  max-height: 70vh; /* Limit the height of the preview container */
 }
 
 #preview-image {
@@ -583,6 +584,8 @@ a {
   height: auto;
   display: block;
   transform: scaleX(1); /* Ensure preview is not mirrored */
+  max-height: 60vh; /* Limit the height of the preview image */
+  object-fit: contain; /* Maintain aspect ratio */
 }
 
 #camera-buttons,
@@ -590,6 +593,7 @@ a {
   display: flex;
   justify-content: space-between;
   width: 100%;
+  margin-top: 15px; /* Add consistent margin */
 }
 
 #retake-btn {
@@ -691,6 +695,14 @@ a {
     right: 10px;
     width: 180px;
   }
+
+  #preview-container {
+    max-height: 60vh;
+  }
+
+  #preview-image {
+    max-height: 50vh;
+  }
 }
 
 /* Small screens */
@@ -724,5 +736,13 @@ a {
 
   .side-menu {
     width: 250px;
+  }
+
+  #preview-container {
+    max-height: 50vh;
+  }
+
+  #preview-image {
+    max-height: 40vh;
   }
 }
