@@ -54,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentRoomMessages = []
   let capturedImage = null
   let isProcessingImage = false
+  let isCameraSwitching = false // Flag to prevent multiple camera switches at once
 
   // Initialize Socket.IO
   const socket = io()
@@ -567,7 +568,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // CAMERA FUNCTIONALITY
   // -------------------
 
-  // Open camera function
+  // Open camera function with improved error handling
   function openCamera() {
     console.log("Opening camera...")
 
@@ -580,46 +581,82 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Stop any existing stream
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
+      stream.getTracks().forEach((track) => {
+        track.stop()
+      })
       stream = null
     }
 
-    // Get camera access
+    // Get camera access with more specific constraints
+    const constraints = {
+      video: {
+        facingMode: facingMode,
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    }
+
     navigator.mediaDevices
-      .getUserMedia({
-        video: { facingMode: facingMode },
-        audio: false,
-      })
+      .getUserMedia(constraints)
       .then((videoStream) => {
         console.log("Camera stream obtained successfully")
         stream = videoStream
         cameraView.srcObject = stream
 
-        // Apply mirror effect only for front camera (selfie mode)
-        if (facingMode === "user") {
-          cameraView.classList.add("mirror")
-        } else {
-          cameraView.classList.remove("mirror")
+        // Wait for video to be ready
+        cameraView.onloadedmetadata = () => {
+          // Apply mirror effect only for front camera (selfie mode)
+          if (facingMode === "user") {
+            cameraView.classList.add("mirror")
+          } else {
+            cameraView.classList.remove("mirror")
+          }
         }
 
         cameraModal.style.display = "block"
       })
       .catch((error) => {
         console.error("Error accessing camera:", error)
-        alert("Could not access the camera. Please check permissions.")
+
+        // Try with simpler constraints if specific ones fail
+        console.log("Trying with simpler constraints...")
+        navigator.mediaDevices
+          .getUserMedia({ video: true, audio: false })
+          .then((videoStream) => {
+            console.log("Camera accessed with basic constraints")
+            stream = videoStream
+            cameraView.srcObject = stream
+            cameraModal.style.display = "block"
+          })
+          .catch((fallbackError) => {
+            console.error("Camera access failed completely:", fallbackError)
+            alert("Could not access the camera. Please check permissions.")
+          })
       })
   }
 
-  // Close camera function
+  // Close camera function - improved to ensure complete cleanup
   function closeCamera() {
     console.log("Closing camera...")
+
+    // Hide the camera modal
     cameraModal.style.display = "none"
+
+    // Reset captured image
     capturedImage = null
 
-    // Stop all tracks
+    // Stop all tracks and clean up
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
+      stream.getTracks().forEach((track) => {
+        track.stop()
+      })
       stream = null
+    }
+
+    // Reset video source
+    if (cameraView.srcObject) {
+      cameraView.srcObject = null
     }
   }
 
@@ -632,24 +669,48 @@ document.addEventListener("DOMContentLoaded", () => {
     })
   }
 
-  // Switch camera button
+  // Switch camera button with improved handling for mobile devices
   if (switchCameraBtn) {
     switchCameraBtn.addEventListener("click", () => {
       console.log("Switch camera button clicked")
+
+      // Prevent multiple rapid switches
+      if (isCameraSwitching) {
+        console.log("Camera switch already in progress, ignoring request")
+        return
+      }
+
+      isCameraSwitching = true
+
       // Toggle between front and back camera
       facingMode = facingMode === "user" ? "environment" : "user"
+      console.log(`Switching to ${facingMode === "user" ? "front" : "back"} camera`)
 
       // Stop current stream before reopening
       if (stream) {
-        stream.getTracks().forEach((track) => track.stop())
+        stream.getTracks().forEach((track) => {
+          track.stop()
+        })
+        stream = null
       }
 
-      // Reopen camera with new facing mode
+      // Reset video source
+      if (cameraView.srcObject) {
+        cameraView.srcObject = null
+      }
+
+      // Try to get the new camera with specific constraints
+      const constraints = {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      }
+
       navigator.mediaDevices
-        .getUserMedia({
-          video: { facingMode: facingMode },
-          audio: false,
-        })
+        .getUserMedia(constraints)
         .then((videoStream) => {
           console.log("Camera switched successfully")
           stream = videoStream
@@ -661,10 +722,37 @@ document.addEventListener("DOMContentLoaded", () => {
           } else {
             cameraView.classList.remove("mirror")
           }
+
+          isCameraSwitching = false
         })
         .catch((error) => {
-          console.error("Error switching camera:", error)
-          alert("Could not switch camera. Please check permissions.")
+          console.error("Error switching camera with specific constraints:", error)
+
+          // Try with basic constraints as fallback
+          navigator.mediaDevices
+            .getUserMedia({ video: true, audio: false })
+            .then((videoStream) => {
+              console.log("Camera switched with basic constraints")
+              stream = videoStream
+              cameraView.srcObject = stream
+
+              // We don't know which camera we got, so reset facing mode to default
+              facingMode = "user"
+              cameraView.classList.add("mirror")
+
+              isCameraSwitching = false
+            })
+            .catch((fallbackError) => {
+              console.error("Camera switch failed completely:", fallbackError)
+              alert(
+                "Could not switch camera. Your device may not support multiple cameras or permissions may be denied.",
+              )
+
+              // Reset to previous state
+              facingMode = facingMode === "user" ? "environment" : "user"
+              openCamera() // Try to reopen with previous camera
+              isCameraSwitching = false
+            })
         })
     })
   }
@@ -729,7 +817,7 @@ document.addEventListener("DOMContentLoaded", () => {
     })
   }
 
-  // Send photo button
+  // Send photo button - ensure camera closes after sending
   if (sendPhotoBtn) {
     sendPhotoBtn.addEventListener("click", () => {
       console.log("Send photo button clicked")
@@ -753,7 +841,7 @@ document.addEventListener("DOMContentLoaded", () => {
             isProcessingImage = false
             loadingOverlay.style.display = "none"
 
-            // Close the camera modal
+            // Close the camera modal - ensure this happens
             closeCamera()
           })
           .catch((error) => {
@@ -761,12 +849,15 @@ document.addEventListener("DOMContentLoaded", () => {
             alert("There was an error processing your image. Please try again.")
             isProcessingImage = false
             loadingOverlay.style.display = "none"
+
+            // Still close the camera on error
+            closeCamera()
           })
       }
     })
   }
 
-  // Close modal if clicked outside
+  // Close modal if clicked outside - ensure camera is properly closed
   window.addEventListener("click", (e) => {
     if (e.target === cameraModal) {
       closeCamera()
