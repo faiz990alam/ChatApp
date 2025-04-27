@@ -91,7 +91,7 @@ a {
   justify-content: center;
   gap: 10px;
   margin-bottom: 1.5rem;
-  padding: 13px;
+  padding: 10px;
   background-color: rgba(76, 175, 80, 0.1);
   border-radius: var(--border-radius);
   color: #2e7d32;
