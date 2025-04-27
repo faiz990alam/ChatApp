@@ -720,7 +720,7 @@ document.addEventListener("DOMContentLoaded", () => {
     })
   }
 
-  // Send photo button - ensure camera closes after sending
+  // Send photo button - process image first, then close camera
   if (sendPhotoBtn) {
     sendPhotoBtn.addEventListener("click", () => {
       console.log("Send photo button clicked")
@@ -730,11 +730,11 @@ document.addEventListener("DOMContentLoaded", () => {
         document.querySelector(".loading-overlay p").textContent = "Optimizing image..."
         isProcessingImage = true
 
-        // First close the camera to release resources
-        closeCamera()
+        // Store a copy of the image data before closing the camera
+        const imageToSend = capturedImage
 
-        // Then process and send the image
-        optimizeImage(capturedImage)
+        // Process the image first
+        optimizeImage(imageToSend)
           .then((optimizedImage) => {
             // Update loading message
             document.querySelector(".loading-overlay p").textContent = "Sending image..."
@@ -742,6 +742,9 @@ document.addEventListener("DOMContentLoaded", () => {
             // Send the optimized image
             socket.emit("sendImage", optimizedImage)
             console.log("Optimized image sent to server")
+
+            // Now close the camera after the image is processed and sent
+            closeCamera()
 
             capturedImage = null
             isProcessingImage = false
@@ -752,6 +755,9 @@ document.addEventListener("DOMContentLoaded", () => {
             alert("There was an error processing your image. Please try again.")
             isProcessingImage = false
             loadingOverlay.style.display = "none"
+
+            // Still close the camera on error
+            closeCamera()
           })
       }
     })
