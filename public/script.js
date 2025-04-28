@@ -47,6 +47,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const previewButtons = document.getElementById("preview-buttons")
   const retakeBtn = document.getElementById("retake-btn")
   const sendPhotoBtn = document.getElementById("send-photo-btn")
+  // Add these DOM elements to the existing list
+  const attachmentBtn = document.getElementById("attachment-btn")
+  const pdfUpload = document.getElementById("pdf-upload")
+  const refreshChatBtn = document.getElementById("refresh-chat-btn")
 
   // Variables for camera
   let stream = null
@@ -101,6 +105,9 @@ document.addEventListener("DOMContentLoaded", () => {
         messages.forEach((message) => {
           if (message.image) {
             displayImageMessage(message)
+          } else if (message.pdf === true) {
+            // For PDF messages from localStorage, display a placeholder
+            displayPDFPlaceholder(message)
           } else {
             displayMessage(message)
           }
@@ -116,11 +123,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Save message to localStorage
   function saveMessage(message) {
-    const roomCode = sessionStorage.getItem("roomCode")
-    if (!roomCode) return
-
-    currentRoomMessages.push(message)
-    localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
+    // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
+    if (message.pdf) {
+      // Create a copy with limited PDF data to avoid localStorage size limits
+      const messageCopy = {
+        ...message,
+        pdf: true, // Just store a flag that it was a PDF
+        // Keep other PDF metadata
+        filename: message.filename,
+        filesize: message.filesize,
+      }
+      originalSaveMessage(messageCopy)
+    } else {
+      originalSaveMessage(message)
+    }
   }
 
   if (savedUsername && savedRoomCode) {
@@ -267,6 +283,60 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
+  // Add PDF upload functionality
+  if (attachmentBtn) {
+    attachmentBtn.addEventListener("click", () => {
+      pdfUpload.click()
+    })
+  }
+
+  // Handle PDF file selection
+  pdfUpload.addEventListener("change", (e) => {
+    const file = e.target.files[0]
+
+    if (file) {
+      if (file.type !== "application/pdf") {
+        alert("Please select a PDF file")
+        return
+      }
+
+      // Show loading overlay
+      loadingOverlay.style.display = "flex"
+      isProcessingImage = true
+      document.querySelector(".loading-overlay p").textContent = "Processing PDF..."
+
+      const reader = new FileReader()
+
+      reader.onload = (event) => {
+        // Get file data as base64
+        const pdfData = {
+          data: event.target.result,
+          filename: file.name,
+          filesize: formatFileSize(file.size),
+        }
+
+        // Update loading message
+        document.querySelector(".loading-overlay p").textContent = "Sending PDF..."
+
+        // Send the PDF
+        socket.emit("sendPDF", pdfData)
+        isProcessingImage = false
+        loadingOverlay.style.display = "none"
+      }
+
+      reader.onerror = () => {
+        alert("Error reading the PDF file")
+        isProcessingImage = false
+        loadingOverlay.style.display = "none"
+      }
+
+      reader.readAsDataURL(file)
+
+      // Reset file input
+      e.target.value = ""
+    }
+  })
+
   // Logout
   logoutBtn.addEventListener("click", () => {
     // Prevent logout if processing image
@@ -312,6 +382,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Handle incoming image messages
   socket.on("imageMessage", (message) => {
     displayImageMessage(message)
+    saveMessage(message)
+
+    // Scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight
+  })
+
+  // Handle incoming PDF messages
+  socket.on("pdfMessage", (message) => {
+    displayPDFMessage(message)
     saveMessage(message)
 
     // Scroll to bottom
@@ -526,6 +605,150 @@ document.addEventListener("DOMContentLoaded", () => {
     chatMessages.appendChild(div)
   }
 
+  // Display PDF message
+  function displayPDFMessage(message) {
+    const div = document.createElement("div")
+    const currentUser = sessionStorage.getItem("username")
+
+    if (message.user === currentUser) {
+      div.classList.add("message", "self")
+    } else {
+      div.classList.add("message", "other")
+    }
+
+    // Create message header
+    const header = document.createElement("div")
+    header.classList.add("message-header")
+
+    const username = document.createElement("span")
+    username.textContent = message.user
+    username.classList.add("message-username")
+
+    const timestamp = document.createElement("span")
+    timestamp.textContent = formatTime(new Date(message.timestamp))
+    timestamp.classList.add("message-timestamp")
+
+    header.appendChild(username)
+    header.appendChild(timestamp)
+
+    // Create PDF container
+    const pdfContainer = document.createElement("div")
+    pdfContainer.classList.add("pdf-message-container")
+
+    // PDF icon
+    const pdfIcon = document.createElement("div")
+    pdfIcon.classList.add("pdf-icon")
+    pdfIcon.innerHTML = '<i class="fas fa-file-pdf"></i>'
+
+    // PDF details
+    const pdfDetails = document.createElement("div")
+    pdfDetails.classList.add("pdf-details")
+
+    const filename = document.createElement("div")
+    filename.classList.add("pdf-filename")
+    filename.textContent = message.filename
+
+    const filesize = document.createElement("div")
+    filesize.classList.add("pdf-size")
+    filesize.textContent = message.filesize
+
+    pdfDetails.appendChild(filename)
+    pdfDetails.appendChild(filesize)
+
+    // Download button
+    const downloadBtn = document.createElement("button")
+    downloadBtn.classList.add("download-pdf-btn")
+    downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download'
+
+    // Add download functionality
+    downloadBtn.addEventListener("click", () => {
+      downloadPDF(message.pdf, message.filename)
+    })
+
+    // Assemble PDF container
+    pdfContainer.appendChild(pdfIcon)
+    pdfContainer.appendChild(pdfDetails)
+    pdfContainer.appendChild(downloadBtn)
+
+    // Append to message div
+    div.appendChild(header)
+    div.appendChild(pdfContainer)
+
+    // Add to chat
+    chatMessages.appendChild(div)
+  }
+
+  // Display PDF placeholder for saved messages
+  function displayPDFPlaceholder(message) {
+    const div = document.createElement("div")
+    const currentUser = sessionStorage.getItem("username")
+
+    if (message.user === currentUser) {
+      div.classList.add("message", "self")
+    } else {
+      div.classList.add("message", "other")
+    }
+
+    // Create message header
+    const header = document.createElement("div")
+    header.classList.add("message-header")
+
+    const username = document.createElement("span")
+    username.textContent = message.user
+    username.classList.add("message-username")
+
+    const timestamp = document.createElement("span")
+    timestamp.textContent = formatTime(new Date(message.timestamp))
+    timestamp.classList.add("message-timestamp")
+
+    header.appendChild(username)
+    header.appendChild(timestamp)
+
+    // Create PDF container
+    const pdfContainer = document.createElement("div")
+    pdfContainer.classList.add("pdf-message-container")
+
+    // PDF icon
+    const pdfIcon = document.createElement("div")
+    pdfIcon.classList.add("pdf-icon")
+    pdfIcon.innerHTML = '<i class="fas fa-file-pdf"></i>'
+
+    // PDF details
+    const pdfDetails = document.createElement("div")
+    pdfDetails.classList.add("pdf-details")
+
+    const filename = document.createElement("div")
+    filename.classList.add("pdf-filename")
+    filename.textContent = message.filename || "Document.pdf"
+
+    const filesize = document.createElement("div")
+    filesize.classList.add("pdf-size")
+    filesize.textContent = message.filesize || "PDF Document"
+
+    pdfDetails.appendChild(filename)
+    pdfDetails.appendChild(filesize)
+
+    // Unavailable notice
+    const unavailableBtn = document.createElement("button")
+    unavailableBtn.classList.add("download-pdf-btn")
+    unavailableBtn.style.backgroundColor = "#999"
+    unavailableBtn.innerHTML = '<i class="fas fa-info-circle"></i> Reload required'
+    unavailableBtn.title = "PDF data not stored locally. Reload the page to access the file."
+    unavailableBtn.disabled = true
+
+    // Assemble PDF container
+    pdfContainer.appendChild(pdfIcon)
+    pdfContainer.appendChild(pdfDetails)
+    pdfContainer.appendChild(unavailableBtn)
+
+    // Append to message div
+    div.appendChild(header)
+    div.appendChild(pdfContainer)
+
+    // Add to chat
+    chatMessages.appendChild(div)
+  }
+
   // Download image function
   function downloadImage(dataUrl, filename) {
     const link = document.createElement("a")
@@ -534,6 +757,23 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  // Download PDF function
+  function downloadPDF(dataUrl, filename) {
+    const link = document.createElement("a")
+    link.href = dataUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  // Format file size
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + " bytes"
+    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB"
+    else return (bytes / 1048576).toFixed(1) + " MB"
   }
 
   // Format timestamp
@@ -562,6 +802,39 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.reload()
       }, 300)
     }
+  })
+
+  // Add refresh chat functionality
+  refreshChatBtn.addEventListener("click", () => {
+    // Close the side menu
+    sideMenu.classList.remove("show")
+
+    // Show loading overlay briefly
+    loadingOverlay.style.display = "flex"
+    document.querySelector(".loading-overlay p").textContent = "Refreshing chat..."
+
+    // Clear the messages display (but not the stored messages)
+    chatMessages.innerHTML = ""
+
+    // Reload saved messages
+    setTimeout(() => {
+      loadSavedMessages()
+
+      // Hide loading overlay
+      loadingOverlay.style.display = "none"
+
+      // Notify user
+      const refreshMessage = {
+        user: "System",
+        text: "Chat refreshed",
+        timestamp: new Date().toISOString(),
+      }
+
+      displayMessage(refreshMessage)
+
+      // Scroll to bottom
+      chatMessages.scrollTop = chatMessages.scrollHeight
+    }, 500)
   })
 
   // CAMERA FUNCTIONALITY
@@ -771,4 +1044,58 @@ document.addEventListener("DOMContentLoaded", () => {
       mediaOptionsModal.style.display = "none"
     }
   })
+
+  // Update saveMessage function to handle PDF messages
+  const originalSaveMessage = saveMessage
+  saveMessage = (message) => {
+    // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
+    if (message.pdf) {
+      // Create a copy with limited PDF data to avoid localStorage size limits
+      const messageCopy = {
+        ...message,
+        pdf: true, // Just store a flag that it was a PDF
+        // Keep other PDF metadata
+        filename: message.filename,
+        filesize: message.filesize,
+      }
+      originalSaveMessage(messageCopy)
+    } else {
+      originalSaveMessage(message)
+    }
+  }
+
+  // Update loadSavedMessages function to handle PDF messages
+  const originalLoadSavedMessages = loadSavedMessages
+  loadSavedMessages = () => {
+    const roomCode = sessionStorage.getItem("roomCode")
+    if (!roomCode) return
+
+    const savedMessages = localStorage.getItem(`chat_messages_${roomCode}`)
+    if (savedMessages) {
+      try {
+        const messages = JSON.parse(savedMessages)
+        currentRoomMessages = messages
+
+        // Display saved messages
+        chatMessages.innerHTML = ""
+        messages.forEach((message) => {
+          if (message.image) {
+            displayImageMessage(message)
+          } else if (message.pdf === true) {
+            // For PDF messages from localStorage, display a placeholder
+            displayPDFPlaceholder(message)
+          } else {
+            displayMessage(message)
+          }
+        })
+
+        // Scroll to bottom
+        chatMessages.scrollTop = chatMessages.scrollHeight
+      } catch (error) {
+        console.error("Error loading saved messages:", error)
+      }
+    }
+  }
+
+  // Correct the undeclared track variable
 })
