@@ -47,10 +47,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const previewButtons = document.getElementById("preview-buttons")
   const retakeBtn = document.getElementById("retake-btn")
   const sendPhotoBtn = document.getElementById("send-photo-btn")
-  // Add these DOM elements to the existing list
-  const attachmentBtn = document.getElementById("attachment-btn")
-  const pdfUpload = document.getElementById("pdf-upload")
-  const refreshChatBtn = document.getElementById("refresh-chat-btn")
 
   // Variables for camera
   let stream = null
@@ -59,19 +55,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let capturedImage = null
   let isProcessingImage = false
 
-  // Maximum chunk size for PDF files (500KB)
-  const MAX_CHUNK_SIZE = 500 * 1024
-
   // Initialize Socket.IO
   const socket = io()
-
-  // Track PDF transfers in progress
-  const pdfTransfers = {}
-
-  // Function to scroll chat to bottom
-  function scrollToBottom() {
-    chatMessages.scrollTop = chatMessages.scrollHeight
-  }
 
   // Join chat room
   joinBtn.addEventListener("click", () => {
@@ -116,16 +101,13 @@ document.addEventListener("DOMContentLoaded", () => {
         messages.forEach((message) => {
           if (message.image) {
             displayImageMessage(message)
-          } else if (message.pdf === true) {
-            // For PDF messages from localStorage, display a placeholder
-            displayPDFPlaceholder(message)
           } else {
             displayMessage(message)
           }
         })
 
         // Scroll to bottom
-        scrollToBottom()
+        chatMessages.scrollTop = chatMessages.scrollHeight
       } catch (error) {
         console.error("Error loading saved messages:", error)
       }
@@ -137,21 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const roomCode = sessionStorage.getItem("roomCode")
     if (!roomCode) return
 
-    // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
-    if (message.pdf) {
-      // Create a copy with limited PDF data to avoid localStorage size limits
-      const messageCopy = {
-        ...message,
-        pdf: true, // Just store a flag that it was a PDF
-        // Keep other PDF metadata
-        filename: message.filename,
-        filesize: message.filesize,
-      }
-      currentRoomMessages.push(messageCopy)
-    } else {
-      currentRoomMessages.push(message)
-    }
-
+    currentRoomMessages.push(message)
     localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
   }
 
@@ -299,177 +267,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
-  // Add PDF upload functionality
-  if (attachmentBtn) {
-    attachmentBtn.addEventListener("click", () => {
-      pdfUpload.click()
-    })
-  }
-
-  // Handle PDF file selection with chunking for large files
-  pdfUpload.addEventListener("change", (e) => {
-    const file = e.target.files[0]
-
-    if (file) {
-      if (file.type !== "application/pdf") {
-        alert("Please select a PDF file")
-        return
-      }
-
-      // Show loading overlay
-      loadingOverlay.style.display = "flex"
-      isProcessingImage = true
-      document.querySelector(".loading-overlay p").textContent = "Processing PDF..."
-
-      // Create a unique ID for this PDF transfer
-      const transferId = Date.now().toString() + Math.random().toString(36).substr(2, 5)
-
-      // Prepare metadata
-      const pdfMetadata = {
-        filename: file.name,
-        filesize: formatFileSize(file.size),
-        totalSize: file.size,
-        transferId: transferId,
-      }
-
-      // First send metadata to prepare receivers
-      socket.emit("pdfMetadata", pdfMetadata)
-
-      // Read the file as ArrayBuffer for more efficient chunking
-      const reader = new FileReader()
-
-      reader.onload = (event) => {
-        const arrayBuffer = event.target.result
-        const bytes = new Uint8Array(arrayBuffer)
-
-        // Calculate total chunks
-        const totalChunks = Math.ceil(bytes.length / MAX_CHUNK_SIZE)
-
-        // Update loading message
-        document.querySelector(".loading-overlay p").textContent = `Sending PDF (0/${totalChunks} chunks)...`
-
-        // Send chunks sequentially
-        sendPDFChunks(bytes, transferId, totalChunks)
-      }
-
-      reader.onerror = () => {
-        alert("Error reading the PDF file")
-        isProcessingImage = false
-        loadingOverlay.style.display = "none"
-      }
-
-      reader.readAsArrayBuffer(file)
-
-      // Reset file input
-      e.target.value = ""
-    }
-  })
-
-  // Function to send PDF chunks
-  function sendPDFChunks(bytes, transferId, totalChunks) {
-    let currentChunk = 0
-
-    function sendNextChunk() {
-      if (currentChunk >= totalChunks) {
-        // All chunks sent
-        document.querySelector(".loading-overlay p").textContent = "PDF sent successfully!"
-        setTimeout(() => {
-          isProcessingImage = false
-          loadingOverlay.style.display = "none"
-        }, 500)
-        return
-      }
-
-      // Calculate chunk boundaries
-      const start = currentChunk * MAX_CHUNK_SIZE
-      const end = Math.min(start + MAX_CHUNK_SIZE, bytes.length)
-      const chunk = bytes.slice(start, end)
-
-      // Convert chunk to base64
-      const base64Chunk = arrayBufferToBase64(chunk)
-
-      // Send the chunk
-      socket.emit("pdfChunk", {
-        transferId: transferId,
-        chunkIndex: currentChunk,
-        totalChunks: totalChunks,
-        data: base64Chunk,
-      })
-
-      // Update progress
-      currentChunk++
-      document.querySelector(".loading-overlay p").textContent =
-        `Sending PDF (${currentChunk}/${totalChunks} chunks)...`
-
-      // Schedule next chunk (slight delay to prevent flooding)
-      setTimeout(sendNextChunk, 100)
-    }
-
-    // Start sending chunks
-    sendNextChunk()
-  }
-
-  // Helper function to convert ArrayBuffer to base64
-  function arrayBufferToBase64(buffer) {
-    let binary = ""
-    const bytes = new Uint8Array(buffer)
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i])
-    }
-    return window.btoa(binary)
-  }
-
-  // Handle PDF metadata
-  socket.on("pdfMetadata", (metadata) => {
-    // Initialize a new transfer
-    pdfTransfers[metadata.transferId] = {
-      filename: metadata.filename,
-      filesize: metadata.filesize,
-      totalSize: metadata.totalSize,
-      chunks: new Array(Math.ceil(metadata.totalSize / MAX_CHUNK_SIZE)),
-      receivedChunks: 0,
-      totalChunks: Math.ceil(metadata.totalSize / MAX_CHUNK_SIZE),
-      user: metadata.user,
-    }
-  })
-
-  // Handle PDF chunks
-  socket.on("pdfChunk", (chunkData) => {
-    const transfer = pdfTransfers[chunkData.transferId]
-
-    if (transfer) {
-      // Store this chunk
-      transfer.chunks[chunkData.chunkIndex] = chunkData.data
-      transfer.receivedChunks++
-
-      // Check if all chunks received
-      if (transfer.receivedChunks === transfer.totalChunks) {
-        // Combine all chunks
-        const base64Data = transfer.chunks.join("")
-        const pdfData = `data:application/pdf;base64,${base64Data}`
-
-        // Create the complete PDF message
-        const pdfMessage = {
-          user: transfer.user,
-          pdf: pdfData,
-          filename: transfer.filename,
-          filesize: transfer.filesize,
-          timestamp: new Date().toISOString(),
-        }
-
-        // Display the PDF
-        displayPDFMessage(pdfMessage)
-        saveMessage(pdfMessage)
-
-        // Scroll to bottom
-        scrollToBottom()
-
-        // Clean up
-        delete pdfTransfers[chunkData.transferId]
-      }
-    }
-  })
-
   // Logout
   logoutBtn.addEventListener("click", () => {
     // Prevent logout if processing image
@@ -509,7 +306,7 @@ document.addEventListener("DOMContentLoaded", () => {
     saveMessage(message)
 
     // Scroll to bottom
-    scrollToBottom()
+    chatMessages.scrollTop = chatMessages.scrollHeight
   })
 
   // Handle incoming image messages
@@ -518,16 +315,7 @@ document.addEventListener("DOMContentLoaded", () => {
     saveMessage(message)
 
     // Scroll to bottom
-    scrollToBottom()
-  })
-
-  // Handle incoming PDF messages (legacy support)
-  socket.on("pdfMessage", (message) => {
-    displayPDFMessage(message)
-    saveMessage(message)
-
-    // Scroll to bottom
-    scrollToBottom()
+    chatMessages.scrollTop = chatMessages.scrollHeight
   })
 
   // Menu button
@@ -738,150 +526,6 @@ document.addEventListener("DOMContentLoaded", () => {
     chatMessages.appendChild(div)
   }
 
-  // Display PDF message
-  function displayPDFMessage(message) {
-    const div = document.createElement("div")
-    const currentUser = sessionStorage.getItem("username")
-
-    if (message.user === currentUser) {
-      div.classList.add("message", "self")
-    } else {
-      div.classList.add("message", "other")
-    }
-
-    // Create message header
-    const header = document.createElement("div")
-    header.classList.add("message-header")
-
-    const username = document.createElement("span")
-    username.textContent = message.user
-    username.classList.add("message-username")
-
-    const timestamp = document.createElement("span")
-    timestamp.textContent = formatTime(new Date(message.timestamp))
-    timestamp.classList.add("message-timestamp")
-
-    header.appendChild(username)
-    header.appendChild(timestamp)
-
-    // Create PDF container
-    const pdfContainer = document.createElement("div")
-    pdfContainer.classList.add("pdf-message-container")
-
-    // PDF icon
-    const pdfIcon = document.createElement("div")
-    pdfIcon.classList.add("pdf-icon")
-    pdfIcon.innerHTML = '<i class="fas fa-file-pdf"></i>'
-
-    // PDF details
-    const pdfDetails = document.createElement("div")
-    pdfDetails.classList.add("pdf-details")
-
-    const filename = document.createElement("div")
-    filename.classList.add("pdf-filename")
-    filename.textContent = message.filename
-
-    const filesize = document.createElement("div")
-    filesize.classList.add("pdf-size")
-    filesize.textContent = message.filesize
-
-    pdfDetails.appendChild(filename)
-    pdfDetails.appendChild(filesize)
-
-    // Download button
-    const downloadBtn = document.createElement("button")
-    downloadBtn.classList.add("download-pdf-btn")
-    downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download'
-
-    // Add download functionality
-    downloadBtn.addEventListener("click", () => {
-      downloadPDF(message.pdf, message.filename)
-    })
-
-    // Assemble PDF container
-    pdfContainer.appendChild(pdfIcon)
-    pdfContainer.appendChild(pdfDetails)
-    pdfContainer.appendChild(downloadBtn)
-
-    // Append to message div
-    div.appendChild(header)
-    div.appendChild(pdfContainer)
-
-    // Add to chat
-    chatMessages.appendChild(div)
-  }
-
-  // Display PDF placeholder for saved messages
-  function displayPDFPlaceholder(message) {
-    const div = document.createElement("div")
-    const currentUser = sessionStorage.getItem("username")
-
-    if (message.user === currentUser) {
-      div.classList.add("message", "self")
-    } else {
-      div.classList.add("message", "other")
-    }
-
-    // Create message header
-    const header = document.createElement("div")
-    header.classList.add("message-header")
-
-    const username = document.createElement("span")
-    username.textContent = message.user
-    username.classList.add("message-username")
-
-    const timestamp = document.createElement("span")
-    timestamp.textContent = formatTime(new Date(message.timestamp))
-    timestamp.classList.add("message-timestamp")
-
-    header.appendChild(username)
-    header.appendChild(timestamp)
-
-    // Create PDF container
-    const pdfContainer = document.createElement("div")
-    pdfContainer.classList.add("pdf-message-container")
-
-    // PDF icon
-    const pdfIcon = document.createElement("div")
-    pdfIcon.classList.add("pdf-icon")
-    pdfIcon.innerHTML = '<i class="fas fa-file-pdf"></i>'
-
-    // PDF details
-    const pdfDetails = document.createElement("div")
-    pdfDetails.classList.add("pdf-details")
-
-    const filename = document.createElement("div")
-    filename.classList.add("pdf-filename")
-    filename.textContent = message.filename || "Document.pdf"
-
-    const filesize = document.createElement("div")
-    filesize.classList.add("pdf-size")
-    filesize.textContent = message.filesize || "PDF Document"
-
-    pdfDetails.appendChild(filename)
-    pdfDetails.appendChild(filesize)
-
-    // Unavailable notice
-    const unavailableBtn = document.createElement("button")
-    unavailableBtn.classList.add("download-pdf-btn")
-    unavailableBtn.style.backgroundColor = "#999"
-    unavailableBtn.innerHTML = '<i class="fas fa-info-circle"></i> Reload required'
-    unavailableBtn.title = "PDF data not stored locally. Reload the page to access the file."
-    unavailableBtn.disabled = true
-
-    // Assemble PDF container
-    pdfContainer.appendChild(pdfIcon)
-    pdfContainer.appendChild(pdfDetails)
-    pdfContainer.appendChild(unavailableBtn)
-
-    // Append to message div
-    div.appendChild(header)
-    div.appendChild(pdfContainer)
-
-    // Add to chat
-    chatMessages.appendChild(div)
-  }
-
   // Download image function
   function downloadImage(dataUrl, filename) {
     const link = document.createElement("a")
@@ -890,34 +534,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-  }
-
-  // Download PDF function
-  function downloadPDF(dataUrl, filename) {
-    // Create a link element
-    const link = document.createElement("a")
-
-    // Set the href to the data URL
-    link.href = dataUrl
-
-    // Set the download attribute to the original filename
-    link.download = filename
-
-    // Append to the body
-    document.body.appendChild(link)
-
-    // Trigger the download
-    link.click()
-
-    // Clean up
-    document.body.removeChild(link)
-  }
-
-  // Format file size
-  function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + " bytes"
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB"
-    else return (bytes / 1048576).toFixed(1) + " MB"
   }
 
   // Format timestamp
@@ -946,39 +562,6 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.reload()
       }, 300)
     }
-  })
-
-  // Add refresh chat functionality
-  refreshChatBtn.addEventListener("click", () => {
-    // Close the side menu
-    sideMenu.classList.remove("show")
-
-    // Show loading overlay briefly
-    loadingOverlay.style.display = "flex"
-    document.querySelector(".loading-overlay p").textContent = "Refreshing chat..."
-
-    // Clear the messages display (but not the stored messages)
-    chatMessages.innerHTML = ""
-
-    // Reload saved messages
-    setTimeout(() => {
-      loadSavedMessages()
-
-      // Hide loading overlay
-      loadingOverlay.style.display = "none"
-
-      // Notify user
-      const refreshMessage = {
-        user: "System",
-        text: "Chat refreshed",
-        timestamp: new Date().toISOString(),
-      }
-
-      displayMessage(refreshMessage)
-
-      // Scroll to bottom
-      chatMessages.scrollTop = chatMessages.scrollHeight
-    }, 500)
   })
 
   // CAMERA FUNCTIONALITY
@@ -1189,94 +772,3 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 })
-
-// Replace the arrayBufferToBase64 function with this improved version
-function arrayBufferToBase64(buffer) {
-  let binary = ""
-  const bytes = new Uint8Array(buffer)
-  const len = bytes.byteLength
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return window.btoa(binary)
-}
-
-// Replace the PDF chunk handling with this improved version
-socket.on("pdfChunk", (chunkData) => {
-  const transfer = pdfTransfers[chunkData.transferId]
-
-  if (transfer) {
-    // Store this chunk
-    transfer.chunks[chunkData.chunkIndex] = chunkData.data
-    transfer.receivedChunks++
-
-    // Check if all chunks received
-    if (transfer.receivedChunks === transfer.totalChunks) {
-      // Combine all chunks
-      const base64Data = transfer.chunks.join("")
-      const pdfData = `data:application/pdf;base64,${base64Data}`
-
-      // Create the complete PDF message
-      const pdfMessage = {
-        user: transfer.user,
-        pdf: pdfData,
-        filename: transfer.filename,
-        filesize: transfer.filesize,
-        timestamp: new Date().toISOString(),
-      }
-
-      // Display the PDF
-      displayPDFMessage(pdfMessage)
-      saveMessage(pdfMessage)
-
-      // Scroll to bottom
-      scrollToBottom()
-
-      // Clean up
-      delete pdfTransfers[chunkData.transferId]
-    }
-  }
-})
-
-// Replace the sendPDFChunks function with this improved version
-function sendPDFChunks(bytes, transferId, totalChunks) {
-  let currentChunk = 0
-
-  function sendNextChunk() {
-    if (currentChunk >= totalChunks) {
-      // All chunks sent
-      document.querySelector(".loading-overlay p").textContent = "PDF sent successfully!"
-      setTimeout(() => {
-        isProcessingImage = false
-        loadingOverlay.style.display = "none"
-      }, 500)
-      return
-    }
-
-    // Calculate chunk boundaries
-    const start = currentChunk * MAX_CHUNK_SIZE
-    const end = Math.min(start + MAX_CHUNK_SIZE, bytes.length)
-    const chunk = bytes.slice(start, end)
-
-    // Convert chunk to base64
-    const base64Chunk = arrayBufferToBase64(chunk)
-
-    // Send the chunk
-    socket.emit("pdfChunk", {
-      transferId: transferId,
-      chunkIndex: currentChunk,
-      totalChunks: totalChunks,
-      data: base64Chunk,
-    })
-
-    // Update progress
-    currentChunk++
-    document.querySelector(".loading-overlay p").textContent = `Sending PDF (${currentChunk}/${totalChunks} chunks)...`
-
-    // Schedule next chunk (slight delay to prevent flooding)
-    setTimeout(sendNextChunk, 100)
-  }
-
-  // Start sending chunks
-  sendNextChunk()
-}
