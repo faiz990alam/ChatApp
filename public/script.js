@@ -65,6 +65,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize Socket.IO
   const socket = io()
 
+  // Track PDF transfers in progress
+  const pdfTransfers = {}
+
   // Function to scroll chat to bottom
   function scrollToBottom() {
     chatMessages.scrollTop = chatMessages.scrollHeight
@@ -415,9 +418,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return window.btoa(binary)
   }
-
-  // Track PDF transfers in progress
-  const pdfTransfers = {}
 
   // Handle PDF metadata
   socket.on("pdfMetadata", (metadata) => {
@@ -894,11 +894,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Download PDF function
   function downloadPDF(dataUrl, filename) {
+    // Create a link element
     const link = document.createElement("a")
+
+    // Set the href to the data URL
     link.href = dataUrl
+
+    // Set the download attribute to the original filename
     link.download = filename
+
+    // Append to the body
     document.body.appendChild(link)
+
+    // Trigger the download
     link.click()
+
+    // Clean up
     document.body.removeChild(link)
   }
 
@@ -1178,3 +1189,94 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 })
+
+// Replace the arrayBufferToBase64 function with this improved version
+function arrayBufferToBase64(buffer) {
+  let binary = ""
+  const bytes = new Uint8Array(buffer)
+  const len = bytes.byteLength
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return window.btoa(binary)
+}
+
+// Replace the PDF chunk handling with this improved version
+socket.on("pdfChunk", (chunkData) => {
+  const transfer = pdfTransfers[chunkData.transferId]
+
+  if (transfer) {
+    // Store this chunk
+    transfer.chunks[chunkData.chunkIndex] = chunkData.data
+    transfer.receivedChunks++
+
+    // Check if all chunks received
+    if (transfer.receivedChunks === transfer.totalChunks) {
+      // Combine all chunks
+      const base64Data = transfer.chunks.join("")
+      const pdfData = `data:application/pdf;base64,${base64Data}`
+
+      // Create the complete PDF message
+      const pdfMessage = {
+        user: transfer.user,
+        pdf: pdfData,
+        filename: transfer.filename,
+        filesize: transfer.filesize,
+        timestamp: new Date().toISOString(),
+      }
+
+      // Display the PDF
+      displayPDFMessage(pdfMessage)
+      saveMessage(pdfMessage)
+
+      // Scroll to bottom
+      scrollToBottom()
+
+      // Clean up
+      delete pdfTransfers[chunkData.transferId]
+    }
+  }
+})
+
+// Replace the sendPDFChunks function with this improved version
+function sendPDFChunks(bytes, transferId, totalChunks) {
+  let currentChunk = 0
+
+  function sendNextChunk() {
+    if (currentChunk >= totalChunks) {
+      // All chunks sent
+      document.querySelector(".loading-overlay p").textContent = "PDF sent successfully!"
+      setTimeout(() => {
+        isProcessingImage = false
+        loadingOverlay.style.display = "none"
+      }, 500)
+      return
+    }
+
+    // Calculate chunk boundaries
+    const start = currentChunk * MAX_CHUNK_SIZE
+    const end = Math.min(start + MAX_CHUNK_SIZE, bytes.length)
+    const chunk = bytes.slice(start, end)
+
+    // Convert chunk to base64
+    const base64Chunk = arrayBufferToBase64(chunk)
+
+    // Send the chunk
+    socket.emit("pdfChunk", {
+      transferId: transferId,
+      chunkIndex: currentChunk,
+      totalChunks: totalChunks,
+      data: base64Chunk,
+    })
+
+    // Update progress
+    currentChunk++
+    document.querySelector(".loading-overlay p").textContent = `Sending PDF (${currentChunk}/${totalChunks} chunks)...`
+
+    // Schedule next chunk (slight delay to prevent flooding)
+    setTimeout(sendNextChunk, 100)
+  }
+
+  // Start sending chunks
+  sendNextChunk()
+}
