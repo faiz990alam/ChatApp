@@ -59,8 +59,16 @@ document.addEventListener("DOMContentLoaded", () => {
   let capturedImage = null
   let isProcessingImage = false
 
+  // Maximum chunk size for PDF files (500KB)
+  const MAX_CHUNK_SIZE = 500 * 1024
+
   // Initialize Socket.IO
   const socket = io()
+
+  // Function to scroll chat to bottom
+  function scrollToBottom() {
+    chatMessages.scrollTop = chatMessages.scrollHeight
+  }
 
   // Join chat room
   joinBtn.addEventListener("click", () => {
@@ -114,7 +122,7 @@ document.addEventListener("DOMContentLoaded", () => {
         })
 
         // Scroll to bottom
-        chatMessages.scrollTop = chatMessages.scrollHeight
+        scrollToBottom()
       } catch (error) {
         console.error("Error loading saved messages:", error)
       }
@@ -123,6 +131,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Save message to localStorage
   function saveMessage(message) {
+    const roomCode = sessionStorage.getItem("roomCode")
+    if (!roomCode) return
+
     // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
     if (message.pdf) {
       // Create a copy with limited PDF data to avoid localStorage size limits
@@ -133,10 +144,12 @@ document.addEventListener("DOMContentLoaded", () => {
         filename: message.filename,
         filesize: message.filesize,
       }
-      originalSaveMessage(messageCopy)
+      currentRoomMessages.push(messageCopy)
     } else {
-      originalSaveMessage(message)
+      currentRoomMessages.push(message)
     }
+
+    localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
   }
 
   if (savedUsername && savedRoomCode) {
@@ -290,7 +303,7 @@ document.addEventListener("DOMContentLoaded", () => {
     })
   }
 
-  // Handle PDF file selection
+  // Handle PDF file selection with chunking for large files
   pdfUpload.addEventListener("change", (e) => {
     const file = e.target.files[0]
 
@@ -305,23 +318,35 @@ document.addEventListener("DOMContentLoaded", () => {
       isProcessingImage = true
       document.querySelector(".loading-overlay p").textContent = "Processing PDF..."
 
+      // Create a unique ID for this PDF transfer
+      const transferId = Date.now().toString() + Math.random().toString(36).substr(2, 5)
+
+      // Prepare metadata
+      const pdfMetadata = {
+        filename: file.name,
+        filesize: formatFileSize(file.size),
+        totalSize: file.size,
+        transferId: transferId,
+      }
+
+      // First send metadata to prepare receivers
+      socket.emit("pdfMetadata", pdfMetadata)
+
+      // Read the file as ArrayBuffer for more efficient chunking
       const reader = new FileReader()
 
       reader.onload = (event) => {
-        // Get file data as base64
-        const pdfData = {
-          data: event.target.result,
-          filename: file.name,
-          filesize: formatFileSize(file.size),
-        }
+        const arrayBuffer = event.target.result
+        const bytes = new Uint8Array(arrayBuffer)
+
+        // Calculate total chunks
+        const totalChunks = Math.ceil(bytes.length / MAX_CHUNK_SIZE)
 
         // Update loading message
-        document.querySelector(".loading-overlay p").textContent = "Sending PDF..."
+        document.querySelector(".loading-overlay p").textContent = `Sending PDF (0/${totalChunks} chunks)...`
 
-        // Send the PDF
-        socket.emit("sendPDF", pdfData)
-        isProcessingImage = false
-        loadingOverlay.style.display = "none"
+        // Send chunks sequentially
+        sendPDFChunks(bytes, transferId, totalChunks)
       }
 
       reader.onerror = () => {
@@ -330,10 +355,118 @@ document.addEventListener("DOMContentLoaded", () => {
         loadingOverlay.style.display = "none"
       }
 
-      reader.readAsDataURL(file)
+      reader.readAsArrayBuffer(file)
 
       // Reset file input
       e.target.value = ""
+    }
+  })
+
+  // Function to send PDF chunks
+  function sendPDFChunks(bytes, transferId, totalChunks) {
+    let currentChunk = 0
+
+    function sendNextChunk() {
+      if (currentChunk >= totalChunks) {
+        // All chunks sent
+        document.querySelector(".loading-overlay p").textContent = "PDF sent successfully!"
+        setTimeout(() => {
+          isProcessingImage = false
+          loadingOverlay.style.display = "none"
+        }, 500)
+        return
+      }
+
+      // Calculate chunk boundaries
+      const start = currentChunk * MAX_CHUNK_SIZE
+      const end = Math.min(start + MAX_CHUNK_SIZE, bytes.length)
+      const chunk = bytes.slice(start, end)
+
+      // Convert chunk to base64
+      const base64Chunk = arrayBufferToBase64(chunk)
+
+      // Send the chunk
+      socket.emit("pdfChunk", {
+        transferId: transferId,
+        chunkIndex: currentChunk,
+        totalChunks: totalChunks,
+        data: base64Chunk,
+      })
+
+      // Update progress
+      currentChunk++
+      document.querySelector(".loading-overlay p").textContent =
+        `Sending PDF (${currentChunk}/${totalChunks} chunks)...`
+
+      // Schedule next chunk (slight delay to prevent flooding)
+      setTimeout(sendNextChunk, 100)
+    }
+
+    // Start sending chunks
+    sendNextChunk()
+  }
+
+  // Helper function to convert ArrayBuffer to base64
+  function arrayBufferToBase64(buffer) {
+    let binary = ""
+    const bytes = new Uint8Array(buffer)
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    return window.btoa(binary)
+  }
+
+  // Track PDF transfers in progress
+  const pdfTransfers = {}
+
+  // Handle PDF metadata
+  socket.on("pdfMetadata", (metadata) => {
+    // Initialize a new transfer
+    pdfTransfers[metadata.transferId] = {
+      filename: metadata.filename,
+      filesize: metadata.filesize,
+      totalSize: metadata.totalSize,
+      chunks: new Array(Math.ceil(metadata.totalSize / MAX_CHUNK_SIZE)),
+      receivedChunks: 0,
+      totalChunks: Math.ceil(metadata.totalSize / MAX_CHUNK_SIZE),
+      user: metadata.user,
+    }
+  })
+
+  // Handle PDF chunks
+  socket.on("pdfChunk", (chunkData) => {
+    const transfer = pdfTransfers[chunkData.transferId]
+
+    if (transfer) {
+      // Store this chunk
+      transfer.chunks[chunkData.chunkIndex] = chunkData.data
+      transfer.receivedChunks++
+
+      // Check if all chunks received
+      if (transfer.receivedChunks === transfer.totalChunks) {
+        // Combine all chunks
+        const base64Data = transfer.chunks.join("")
+        const pdfData = `data:application/pdf;base64,${base64Data}`
+
+        // Create the complete PDF message
+        const pdfMessage = {
+          user: transfer.user,
+          pdf: pdfData,
+          filename: transfer.filename,
+          filesize: transfer.filesize,
+          timestamp: new Date().toISOString(),
+        }
+
+        // Display the PDF
+        displayPDFMessage(pdfMessage)
+        saveMessage(pdfMessage)
+
+        // Scroll to bottom
+        scrollToBottom()
+
+        // Clean up
+        delete pdfTransfers[chunkData.transferId]
+      }
     }
   })
 
@@ -376,7 +509,7 @@ document.addEventListener("DOMContentLoaded", () => {
     saveMessage(message)
 
     // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight
+    scrollToBottom()
   })
 
   // Handle incoming image messages
@@ -385,16 +518,16 @@ document.addEventListener("DOMContentLoaded", () => {
     saveMessage(message)
 
     // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight
+    scrollToBottom()
   })
 
-  // Handle incoming PDF messages
+  // Handle incoming PDF messages (legacy support)
   socket.on("pdfMessage", (message) => {
     displayPDFMessage(message)
     saveMessage(message)
 
     // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight
+    scrollToBottom()
   })
 
   // Menu button
@@ -1044,58 +1177,4 @@ document.addEventListener("DOMContentLoaded", () => {
       mediaOptionsModal.style.display = "none"
     }
   })
-
-  // Update saveMessage function to handle PDF messages
-  const originalSaveMessage = saveMessage
-  saveMessage = (message) => {
-    // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
-    if (message.pdf) {
-      // Create a copy with limited PDF data to avoid localStorage size limits
-      const messageCopy = {
-        ...message,
-        pdf: true, // Just store a flag that it was a PDF
-        // Keep other PDF metadata
-        filename: message.filename,
-        filesize: message.filesize,
-      }
-      originalSaveMessage(messageCopy)
-    } else {
-      originalSaveMessage(message)
-    }
-  }
-
-  // Update loadSavedMessages function to handle PDF messages
-  const originalLoadSavedMessages = loadSavedMessages
-  loadSavedMessages = () => {
-    const roomCode = sessionStorage.getItem("roomCode")
-    if (!roomCode) return
-
-    const savedMessages = localStorage.getItem(`chat_messages_${roomCode}`)
-    if (savedMessages) {
-      try {
-        const messages = JSON.parse(savedMessages)
-        currentRoomMessages = messages
-
-        // Display saved messages
-        chatMessages.innerHTML = ""
-        messages.forEach((message) => {
-          if (message.image) {
-            displayImageMessage(message)
-          } else if (message.pdf === true) {
-            // For PDF messages from localStorage, display a placeholder
-            displayPDFPlaceholder(message)
-          } else {
-            displayMessage(message)
-          }
-        })
-
-        // Scroll to bottom
-        chatMessages.scrollTop = chatMessages.scrollHeight
-      } catch (error) {
-        console.error("Error loading saved messages:", error)
-      }
-    }
-  }
-
-  // Correct the undeclared track variable
 })
