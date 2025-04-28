@@ -11,7 +11,9 @@ const __dirname = path.dirname(__filename)
 // Initialize Express app and HTTP server
 const app = express()
 const server = http.createServer(app)
-const io = new Server(server)
+const io = new Server(server, {
+  maxHttpBufferSize: 5e8, // Increase buffer size to 500MB for large files
+})
 
 // Serve static files
 app.use(express.static(path.join(__dirname, "public")))
@@ -86,7 +88,29 @@ io.on("connection", (socket) => {
     }
   })
 
-  // Add PDF handling to the server
+  // Handle PDF metadata
+  socket.on("pdfMetadata", (metadata) => {
+    if (currentRoom) {
+      // Add user info to metadata
+      metadata.user = currentUser
+
+      // Forward metadata to all clients in the room
+      io.to(currentRoom).emit("pdfMetadata", metadata)
+    }
+  })
+
+  // Handle PDF chunks
+  socket.on("pdfChunk", (chunkData) => {
+    if (currentRoom) {
+      // Forward chunk to all clients in the room
+      io.to(currentRoom).emit("pdfChunk", {
+        ...chunkData,
+        user: currentUser,
+      })
+    }
+  })
+
+  // Legacy PDF handling (for backward compatibility)
   socket.on("sendPDF", (pdfData) => {
     if (currentRoom) {
       io.to(currentRoom).emit("pdfMessage", {
