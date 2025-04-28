@@ -12,7 +12,8 @@ const __dirname = path.dirname(__filename)
 const app = express()
 const server = http.createServer(app)
 const io = new Server(server, {
-  maxHttpBufferSize: 5e8, // Increase buffer size to 500MB for large files
+  maxHttpBufferSize: 1e8, // 100MB buffer size
+  pingTimeout: 60000, // Increase timeout for large transfers
 })
 
 // Serve static files
@@ -102,7 +103,7 @@ io.on("connection", (socket) => {
   // Handle PDF chunks
   socket.on("pdfChunk", (chunkData) => {
     if (currentRoom) {
-      // Forward chunk to all clients in the room
+      // Forward chunk to all clients in the room without modification
       io.to(currentRoom).emit("pdfChunk", {
         ...chunkData,
         user: currentUser,
