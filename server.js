@@ -86,6 +86,19 @@ io.on("connection", (socket) => {
     }
   })
 
+  // Add PDF handling to the server
+  socket.on("sendPDF", (pdfData) => {
+    if (currentRoom) {
+      io.to(currentRoom).emit("pdfMessage", {
+        user: currentUser,
+        pdf: pdfData.data,
+        filename: pdfData.filename,
+        filesize: pdfData.filesize,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  })
+
   // Handle user disconnection
   socket.on("disconnect", () => {
     if (currentRoom && currentUser) {
