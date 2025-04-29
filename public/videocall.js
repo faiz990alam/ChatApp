@@ -212,7 +212,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Create and send offer
     try {
-      const offer = await peerConnection.createOffer()
+      callStatus.textContent = "Setting up connection..."
+      callStatus.style.display = "block"
+
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      })
       await peerConnection.setLocalDescription(offer)
 
       socket.emit("call-offer", {
@@ -221,12 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
         offer: peerConnection.localDescription,
       })
 
-      callStatus.textContent = "Call connected"
-      setTimeout(() => {
-        callStatus.style.display = "none"
-      }, 2000)
-
-      callInProgress = true
+      callStatus.textContent = "Waiting for connection..."
     } catch (error) {
       console.error("Error creating offer:", error)
       alert("Error establishing connection. Please try again.")
@@ -238,8 +239,11 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.on("call-rejected", ({ rejector }) => {
     console.log(`Call rejected by ${rejector}`)
 
+    // Show alert to caller
+    alert(`${rejector} declined your call`)
+
     // Add system message to chat
-    addCallHistoryMessage(`${rejector} rejected your call`)
+    addCallHistoryMessage(`${rejector} declined your call`)
 
     // Clean up call resources
     cleanupCall()
@@ -249,6 +253,8 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.on("call-offer", async ({ caller, offer }) => {
     try {
       console.log(`Received offer from ${caller}`)
+      callStatus.textContent = "Connecting..."
+      callStatus.style.display = "block"
 
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
 
@@ -276,7 +282,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       await peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
 
-      callStatus.textContent = "Call connected"
+      callInProgress = true
+      callStatus.textContent = "Connected"
       setTimeout(() => {
         callStatus.style.display = "none"
       }, 2000)
@@ -361,6 +368,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Setup local media stream
   async function setupLocalStream() {
     try {
+      // Show loading status
+      callStatus.textContent = "Requesting camera access..."
+      callStatus.style.display = "block"
+
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: {
@@ -377,6 +388,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return localStream
     } catch (error) {
       console.error("Error accessing media devices:", error)
+
+      // Show more specific error message
+      if (error.name === "NotAllowedError") {
+        alert("Camera or microphone access denied. Please allow access to use video calls.")
+      } else if (error.name === "NotFoundError") {
+        alert("No camera or microphone found. Please connect a device and try again.")
+      } else {
+        alert("Could not access camera or microphone: " + error.message)
+      }
+
       throw error
     }
   }
@@ -399,24 +420,44 @@ document.addEventListener("DOMContentLoaded", () => {
       // Handle connection state changes
       peerConnection.onconnectionstatechange = () => {
         console.log("Connection state:", peerConnection.connectionState)
-        if (
+
+        if (peerConnection.connectionState === "connected") {
+          callStatus.textContent = "Connected"
+          setTimeout(() => {
+            callStatus.style.display = "none"
+          }, 2000)
+        } else if (
           peerConnection.connectionState === "disconnected" ||
           peerConnection.connectionState === "failed" ||
           peerConnection.connectionState === "closed"
         ) {
-          endCall()
+          callStatus.textContent = "Connection lost"
+          callStatus.style.display = "block"
+
+          // Auto end call after a short delay if connection is lost
+          if (peerConnection.connectionState === "failed") {
+            setTimeout(() => {
+              endCall()
+            }, 3000)
+          }
         }
       }
 
       // Handle ICE connection state changes
       peerConnection.oniceconnectionstatechange = () => {
         console.log("ICE connection state:", peerConnection.iceConnectionState)
-        if (
+
+        if (peerConnection.iceConnectionState === "connected") {
+          callStatus.textContent = "Connected"
+          setTimeout(() => {
+            callStatus.style.display = "none"
+          }, 2000)
+        } else if (
           peerConnection.iceConnectionState === "disconnected" ||
           peerConnection.iceConnectionState === "failed" ||
           peerConnection.iceConnectionState === "closed"
         ) {
-          callStatus.textContent = "Connection lost"
+          callStatus.textContent = "Connection issue"
           callStatus.style.display = "block"
         }
       }
@@ -427,6 +468,11 @@ document.addEventListener("DOMContentLoaded", () => {
         remoteStream = event.streams[0]
         if (remoteVideo) {
           remoteVideo.srcObject = remoteStream
+
+          // Hide the call status when we start receiving video
+          setTimeout(() => {
+            callStatus.style.display = "none"
+          }, 1000)
         }
       }
 
@@ -509,21 +555,30 @@ document.addEventListener("DOMContentLoaded", () => {
       timestamp: new Date().toISOString(),
     }
 
-    // Use the existing displayMessage function from main.js
-    if (typeof displayMessage === "function") {
-      displayMessage(callMessage)
-    } else {
-      // Fallback if displayMessage is not available
-      const chatMessages = document.getElementById("chat-messages")
-      if (chatMessages) {
-        const div = document.createElement("div")
-        div.classList.add("message", "system")
-        div.textContent = message
-        chatMessages.appendChild(div)
+    // Get the chat messages container
+    const chatMessages = document.getElementById("chat-messages")
 
-        // Scroll to bottom
-        chatMessages.scrollTop = chatMessages.scrollHeight
-      }
+    // Create message element
+    const div = document.createElement("div")
+    div.classList.add("message", "system")
+
+    // Create message text
+    const text = document.createElement("div")
+    text.classList.add("message-text")
+    text.textContent = message
+
+    // Append to message div
+    div.appendChild(text)
+
+    // Add to chat
+    chatMessages.appendChild(div)
+
+    // Scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight
+
+    // Save message if the saveMessage function exists
+    if (typeof saveMessage === "function") {
+      saveMessage(callMessage)
     }
   }
 
