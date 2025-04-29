@@ -190,8 +190,7 @@ a {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
-.menu-btn,
-.video-call-btn {
+.menu-btn {
   background: none;
   border: none;
   color: white;
@@ -202,17 +201,8 @@ a {
   transition: background-color 0.2s;
 }
 
-.menu-btn:hover,
-.video-call-btn:hover {
+.menu-btn:hover {
   background-color: rgba(255, 255, 255, 0.1);
-}
-
-.video-call-btn {
-  position: relative;
-}
-
-.video-call-btn i {
-  color: white;
 }
 
 /* Side Menu */
@@ -710,175 +700,6 @@ a {
   background-color: #3dbb92;
 }
 
-/* Video Call Styles */
-.video-call-users-list-container {
-  max-height: 300px;
-  overflow-y: auto;
-  margin-top: 20px;
-}
-
-.video-call-users-list {
-  width: 100%;
-}
-
-.video-call-users-list li {
-  padding: 12px 15px;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  display: flex;
-  align-items: center;
-}
-
-.video-call-users-list li:hover {
-  background-color: #f5f5f5;
-}
-
-.video-call-users-list li:last-child {
-  border-bottom: none;
-}
-
-.video-call-users-list li i {
-  margin-right: 10px;
-  color: var(--primary-color);
-}
-
-/* Incoming Call Modal */
-.incoming-call-content {
-  text-align: center;
-  padding: 30px;
-}
-
-.incoming-call-content h2 {
-  margin-bottom: 15px;
-  color: var(--dark-color);
-}
-
-.incoming-call-content p {
-  margin-bottom: 25px;
-  font-size: 1.1rem;
-}
-
-.incoming-call-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-}
-
-.accept-btn {
-  background-color: var(--success-color);
-}
-
-.accept-btn:hover {
-  background-color: #4cae4c;
-}
-
-.reject-btn {
-  background-color: var(--error-color);
-}
-
-.reject-btn:hover {
-  background-color: #c9302c;
-}
-
-/* Video Call Modal */
-.video-call-content {
-  max-width: 90%;
-  width: 1000px;
-  padding: 20px;
-}
-
-.video-grid {
-  display: grid;
-  grid-template-columns: 1fr 3fr;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.video-container {
-  position: relative;
-  border-radius: var(--border-radius);
-  overflow: hidden;
-  background-color: #000;
-}
-
-.local-video-container {
-  aspect-ratio: 4 / 3;
-}
-
-.remote-video-container {
-  aspect-ratio: 16 / 9;
-}
-
-#local-video,
-#remote-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.video-label {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  background-color: rgba(0, 0, 0, 0.5);
-  color: white;
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 0.9rem;
-}
-
-.call-status {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background-color: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 10px 20px;
-  border-radius: 4px;
-  font-size: 1.1rem;
-  display: none;
-}
-
-.video-call-controls {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-}
-
-.control-btn {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  background-color: #f5f5f5;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-  transition: all 0.2s;
-}
-
-.control-btn:hover {
-  background-color: #e5e5e5;
-}
-
-.control-btn.muted {
-  background-color: #f8d7da;
-  color: var(--error-color);
-}
-
-.control-btn.end-call {
-  background-color: var(--error-color);
-  color: white;
-}
-
-.control-btn.end-call:hover {
-  background-color: #c9302c;
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
   .chat-header {
@@ -935,25 +756,6 @@ a {
   #preview-image {
     max-height: 50vh;
   }
-
-  .video-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .local-video-container {
-    aspect-ratio: 4 / 3;
-    height: 120px;
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    z-index: 10;
-    width: auto;
-  }
-
-  .remote-video-container {
-    aspect-ratio: 9 / 16;
-    height: 100%;
-  }
 }
 
 /* Small screens */
@@ -996,15 +798,5 @@ a {
 
   #preview-image {
     max-height: 40vh;
-  }
-
-  .video-call-controls {
-    gap: 10px;
-  }
-
-  .control-btn {
-    width: 45px;
-    height: 45px;
-    font-size: 1rem;
   }
 }
