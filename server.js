@@ -11,7 +11,10 @@ const __dirname = path.dirname(__filename)
 // Initialize Express app and HTTP server
 const app = express()
 const server = http.createServer(app)
-const io = new Server(server)
+const io = new Server(server, {
+  maxHttpBufferSize: 1e9, // 1GB buffer size for large files
+  pingTimeout: 120000, // Increase timeout for large transfers
+})
 
 // Serve static files
 app.use(express.static(path.join(__dirname, "public")))
@@ -81,6 +84,19 @@ io.on("connection", (socket) => {
       io.to(currentRoom).emit("imageMessage", {
         user: currentUser,
         image: imageData,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  })
+
+  // Handle PDF messages
+  socket.on("sendPDF", (pdfData) => {
+    if (currentRoom) {
+      io.to(currentRoom).emit("pdfMessage", {
+        user: currentUser,
+        pdf: pdfData.data,
+        filename: pdfData.filename,
+        filesize: pdfData.filesize,
         timestamp: new Date().toISOString(),
       })
     }
