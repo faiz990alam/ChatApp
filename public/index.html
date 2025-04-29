@@ -42,9 +42,6 @@
           <span id="room-title">Room: Default</span>
         </div>
         <div class="header-right">
-          <button id="video-call-btn" class="video-call-btn" title="Video Call">
-            <i class="fas fa-video"></i>
-          </button>
           <div class="user-count" title="Active Users">
             <i class="fas fa-users"></i>
             <span id="user-count">0</span>
@@ -162,62 +159,6 @@
     </div>
   </div>
 
-  <!-- Video Call User Selection Modal -->
-  <div id="video-call-select-modal" class="modal">
-    <div class="modal-content">
-      <span class="close-modal">&times;</span>
-      <h2>Start Video Call</h2>
-      <p>Which user do you want to connect with?</p>
-      <div class="video-call-users-list-container">
-        <ul id="video-call-users-list" class="video-call-users-list"></ul>
-      </div>
-    </div>
-  </div>
-
-  <!-- Incoming Call Modal -->
-  <div id="incoming-call-modal" class="modal">
-    <div class="modal-content incoming-call-content">
-      <h2>Incoming Call</h2>
-      <p id="incoming-call-text">Someone is calling you</p>
-      <div class="incoming-call-buttons">
-        <button id="accept-call-btn" class="btn accept-btn">
-          <i class="fas fa-phone"></i> Accept
-        </button>
-        <button id="reject-call-btn" class="btn reject-btn">
-          <i class="fas fa-phone-slash"></i> Reject
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Video Call Modal -->
-  <div id="video-call-modal" class="modal">
-    <div class="modal-content video-call-content">
-      <div class="video-grid">
-        <div class="video-container local-video-container">
-          <video id="local-video" autoplay muted playsinline></video>
-          <div class="video-label">You</div>
-        </div>
-        <div class="video-container remote-video-container">
-          <video id="remote-video" autoplay playsinline></video>
-          <div id="remote-video-label" class="video-label">Remote User</div>
-          <div id="call-status" class="call-status">Connecting...</div>
-        </div>
-      </div>
-      <div class="video-call-controls">
-        <button id="toggle-audio-btn" class="control-btn" title="Mute Audio">
-          <i class="fas fa-microphone"></i>
-        </button>
-        <button id="toggle-video-btn" class="control-btn" title="Turn Off Video">
-          <i class="fas fa-video"></i>
-        </button>
-        <button id="end-call-btn" class="control-btn end-call" title="End Call">
-          <i class="fas fa-phone-slash"></i>
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- Loading Overlay -->
   <div id="loading-overlay" class="loading-overlay">
     <div class="spinner"></div>
@@ -226,6 +167,5 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
-  <script src="videocall.js"></script>
 </body>
 </html>
