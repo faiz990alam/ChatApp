@@ -1,4 +1,74 @@
 document.addEventListener("DOMContentLoaded", () => {
+  // Add the saveMessage function to the global scope so it can be used by videocall.js
+  // Add this near the top of the document.addEventListener("DOMContentLoaded", () => { ... }) function:
+
+  // Make saveMessage function available globally
+  window.saveMessage = (message) => {
+    const roomCode = sessionStorage.getItem("roomCode")
+    if (!roomCode) return
+
+    // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
+    if (message.pdf) {
+      // Create a copy with limited PDF data to avoid localStorage size limits
+      const messageCopy = {
+        ...message,
+        pdf: true, // Just store a flag that it was a PDF
+        // Keep other PDF metadata
+        filename: message.filename,
+        filesize: message.filesize,
+      }
+      currentRoomMessages.push(messageCopy)
+    } else {
+      currentRoomMessages.push(message)
+    }
+
+    localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
+  }
+
+  // Make displayMessage function available globally
+  window.displayMessage = (message) => {
+    const div = document.createElement("div")
+    const currentUser = sessionStorage.getItem("username")
+
+    if (message.user === "System") {
+      div.classList.add("message", "system")
+    } else if (message.user === currentUser) {
+      div.classList.add("message", "self")
+    } else {
+      div.classList.add("message", "other")
+    }
+
+    // Create message header
+    const header = document.createElement("div")
+    header.classList.add("message-header")
+
+    const username = document.createElement("span")
+    username.textContent = message.user
+    username.classList.add("message-username")
+
+    const timestamp = document.createElement("span")
+    timestamp.textContent = formatTime(new Date(message.timestamp))
+    timestamp.classList.add("message-timestamp")
+
+    header.appendChild(username)
+    header.appendChild(timestamp)
+
+    // Create message text
+    const text = document.createElement("div")
+    text.classList.add("message-text")
+    text.textContent = message.text
+
+    // Append to message div
+    div.appendChild(header)
+    div.appendChild(text)
+
+    // Add to chat
+    chatMessages.appendChild(div)
+
+    // Scroll to bottom
+    scrollToBottom()
+  }
+
   // Set current year in footer and menu
   const currentYear = new Date().getFullYear().toString()
   document.getElementById("current-year").textContent = currentYear
@@ -126,27 +196,27 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Save message to localStorage
-  function saveMessage(message) {
-    const roomCode = sessionStorage.getItem("roomCode")
-    if (!roomCode) return
+  // function saveMessage(message) {
+  //   const roomCode = sessionStorage.getItem("roomCode")
+  //   if (!roomCode) return
 
-    // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
-    if (message.pdf) {
-      // Create a copy with limited PDF data to avoid localStorage size limits
-      const messageCopy = {
-        ...message,
-        pdf: true, // Just store a flag that it was a PDF
-        // Keep other PDF metadata
-        filename: message.filename,
-        filesize: message.filesize,
-      }
-      currentRoomMessages.push(messageCopy)
-    } else {
-      currentRoomMessages.push(message)
-    }
+  //   // If it's a PDF message, make sure we're not storing the entire PDF data in localStorage
+  //   if (message.pdf) {
+  //     // Create a copy with limited PDF data to avoid localStorage size limits
+  //     const messageCopy = {
+  //       ...message,
+  //       pdf: true, // Just store a flag that it was a PDF
+  //       // Keep other PDF metadata
+  //       filename: message.filename,
+  //       filesize: message.filesize,
+  //     }
+  //     currentRoomMessages.push(messageCopy)
+  //   } else {
+  //     currentRoomMessages.push(message)
+  //   }
 
-    localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
-  }
+  //   localStorage.setItem(`chat_messages_${roomCode}`, JSON.stringify(currentRoomMessages))
+  // }
 
   if (savedUsername && savedRoomCode) {
     usernameInput.value = savedUsername
@@ -500,45 +570,45 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Display text message
-  function displayMessage(message) {
-    const div = document.createElement("div")
-    const currentUser = sessionStorage.getItem("username")
+  // function displayMessage(message) {
+  //   const div = document.createElement("div")
+  //   const currentUser = sessionStorage.getItem("username")
 
-    if (message.user === "System") {
-      div.classList.add("message", "system")
-    } else if (message.user === currentUser) {
-      div.classList.add("message", "self")
-    } else {
-      div.classList.add("message", "other")
-    }
+  //   if (message.user === "System") {
+  //     div.classList.add("message", "system")
+  //   } else if (message.user === currentUser) {
+  //     div.classList.add("message", "self")
+  //   } else {
+  //     div.classList.add("message", "other")
+  //   }
 
-    // Create message header
-    const header = document.createElement("div")
-    header.classList.add("message-header")
+  //   // Create message header
+  //   const header = document.createElement("div")
+  //   header.classList.add("message-header")
 
-    const username = document.createElement("span")
-    username.textContent = message.user
-    username.classList.add("message-username")
+  //   const username = document.createElement("span")
+  //   username.textContent = message.user
+  //   username.classList.add("message-username")
 
-    const timestamp = document.createElement("span")
-    timestamp.textContent = formatTime(new Date(message.timestamp))
-    timestamp.classList.add("message-timestamp")
+  //   const timestamp = document.createElement("span")
+  //   timestamp.textContent = formatTime(new Date(message.timestamp))
+  //   timestamp.classList.add("message-timestamp")
 
-    header.appendChild(username)
-    header.appendChild(timestamp)
+  //   header.appendChild(username)
+  //   header.appendChild(timestamp)
 
-    // Create message text
-    const text = document.createElement("div")
-    text.classList.add("message-text")
-    text.textContent = message.text
+  //   // Create message text
+  //   const text = document.createElement("div")
+  //   text.classList.add("message-text")
+  //   text.textContent = message.text
 
-    // Append to message div
-    div.appendChild(header)
-    div.appendChild(text)
+  //   // Append to message div
+  //   div.appendChild(header)
+  //   div.appendChild(text)
 
-    // Add to chat
-    chatMessages.appendChild(div)
-  }
+  //   // Add to chat
+  //   chatMessages.appendChild(div)
+  // }
 
   // Display image message
   function displayImageMessage(message) {
