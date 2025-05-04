@@ -55,22 +55,36 @@ io.on("connection", (socket) => {
 
   // Handle user joining a room
   socket.on("join", ({ username, roomCode }) => {
+    console.log(`User ${username} joining room ${roomCode}`)
     currentUser = username
     currentRoom = roomCode
 
     // Create room if it doesn't exist
     if (!rooms[roomCode]) {
+      console.log(`Creating new room: ${roomCode}`)
       rooms[roomCode] = { users: [] }
     }
 
-    // Add user to room
-    rooms[roomCode].users.push({
-      id: socket.id,
-      username,
-    })
+    // Check if user already exists in the room
+    const existingUserIndex = rooms[roomCode].users.findIndex((user) => user.username === username)
+    if (existingUserIndex >= 0) {
+      // Update the socket ID for the existing user
+      console.log(`Updating socket ID for existing user ${username}`)
+      rooms[roomCode].users[existingUserIndex].id = socket.id
+    } else {
+      // Add new user to room
+      console.log(`Adding new user ${username} to room ${roomCode}`)
+      rooms[roomCode].users.push({
+        id: socket.id,
+        username,
+      })
+    }
 
     // Join the Socket.IO room
     socket.join(roomCode)
+
+    // Log current room state
+    console.log(`Room ${roomCode} now has users:`, rooms[roomCode].users.map((u) => u.username).join(", "))
 
     // Notify everyone in the room
     io.to(roomCode).emit("userJoined", {
@@ -131,11 +145,15 @@ io.on("connection", (socket) => {
   // Video call signaling
 
   // Handle call initiation
-  socket.on("call-user", ({ target, caller }) => {
-    console.log(`Call initiation: ${caller} is calling ${target}`)
-    if (currentRoom) {
+  socket.on("call-user", ({ target, caller, room }) => {
+    console.log(`Call initiation: ${caller} is calling ${target} in room ${room || currentRoom}`)
+
+    // Use the room parameter if provided, otherwise fall back to currentRoom
+    const roomCode = room || currentRoom
+
+    if (roomCode && rooms[roomCode]) {
       // Find target user in the room
-      const targetUser = rooms[currentRoom].users.find((user) => user.username === target)
+      const targetUser = rooms[roomCode].users.find((user) => user.username === target)
       if (targetUser) {
         console.log(`Found target user ${target} with socket ID ${targetUser.id}`)
 
@@ -151,7 +169,7 @@ io.on("connection", (socket) => {
           // Set a timeout to check if the call was answered
           setTimeout(() => {
             // If the user is still in the room but hasn't responded, send a reminder
-            const isStillInRoom = rooms[currentRoom] && rooms[currentRoom].users.some((u) => u.id === targetUser.id)
+            const isStillInRoom = rooms[roomCode] && rooms[roomCode].users.some((u) => u.id === targetUser.id)
 
             if (isStillInRoom) {
               io.to(targetUser.id).emit("call-reminder", { caller })
@@ -165,7 +183,7 @@ io.on("connection", (socket) => {
           })
         }
       } else {
-        console.log(`Target user ${target} not found in room ${currentRoom}`)
+        console.log(`Target user ${target} not found in room ${roomCode}`)
         // Notify caller that target user was not found
         socket.emit("call-failed", {
           target,
@@ -173,10 +191,11 @@ io.on("connection", (socket) => {
         })
       }
     } else {
-      console.log(`Current room not found for call from ${caller} to ${target}`)
+      console.log(`Room not found: ${roomCode}`)
+      console.log(`Available rooms: ${Object.keys(rooms).join(", ")}`)
       socket.emit("call-failed", {
         target,
-        reason: "Room not found",
+        reason: "Room not found or invalid",
       })
     }
   })
