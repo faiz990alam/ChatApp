@@ -20,6 +20,9 @@ const io = new Server(server, {
   },
   transports: ["websocket", "polling"],
   pingInterval: 10000, // More frequent pings to detect disconnections faster
+  connectTimeout: 45000, // Longer connect timeout
+  allowEIO3: true, // Allow Engine.IO 3 for better compatibility
+  upgradeTimeout: 30000, // Longer upgrade timeout
 })
 
 // Serve static files
@@ -32,6 +35,23 @@ const rooms = {}
 io.on("connection", (socket) => {
   let currentRoom = null
   let currentUser = null
+
+  // Setup heartbeat mechanism
+  let heartbeatInterval
+
+  const startHeartbeat = () => {
+    clearInterval(heartbeatInterval)
+    heartbeatInterval = setInterval(() => {
+      socket.emit("heartbeat")
+    }, 5000) // Send heartbeat every 5 seconds
+  }
+
+  socket.on("heartbeat-response", () => {
+    // User is still connected
+    console.log(`Heartbeat response from ${currentUser || socket.id}`)
+  })
+
+  startHeartbeat()
 
   // Handle user joining a room
   socket.on("join", ({ username, roomCode }) => {
@@ -118,10 +138,32 @@ io.on("connection", (socket) => {
       const targetUser = rooms[currentRoom].users.find((user) => user.username === target)
       if (targetUser) {
         console.log(`Found target user ${target} with socket ID ${targetUser.id}`)
-        // Send incoming call notification to target user
-        io.to(targetUser.id).emit("incoming-call", { caller })
-        // Send confirmation to caller that the call request was sent
-        socket.emit("call-request-sent", { target })
+
+        // Check if the target socket is connected
+        const targetSocket = io.sockets.sockets.get(targetUser.id)
+        if (targetSocket && targetSocket.connected) {
+          // Send incoming call notification to target user
+          io.to(targetUser.id).emit("incoming-call", { caller })
+
+          // Send confirmation to caller that the call request was sent
+          socket.emit("call-request-sent", { target })
+
+          // Set a timeout to check if the call was answered
+          setTimeout(() => {
+            // If the user is still in the room but hasn't responded, send a reminder
+            const isStillInRoom = rooms[currentRoom] && rooms[currentRoom].users.some((u) => u.id === targetUser.id)
+
+            if (isStillInRoom) {
+              io.to(targetUser.id).emit("call-reminder", { caller })
+            }
+          }, 10000) // 10 second reminder
+        } else {
+          console.log(`Target socket ${targetUser.id} is not connected`)
+          socket.emit("call-failed", {
+            target,
+            reason: "User appears to be offline",
+          })
+        }
       } else {
         console.log(`Target user ${target} not found in room ${currentRoom}`)
         // Notify caller that target user was not found
@@ -132,6 +174,10 @@ io.on("connection", (socket) => {
       }
     } else {
       console.log(`Current room not found for call from ${caller} to ${target}`)
+      socket.emit("call-failed", {
+        target,
+        reason: "Room not found",
+      })
     }
   })
 
@@ -197,8 +243,15 @@ io.on("connection", (socket) => {
       // Find target user in the room
       const targetUser = rooms[currentRoom].users.find((user) => user.username === target)
       if (targetUser) {
-        // Send ICE candidate to target user
-        io.to(targetUser.id).emit("ice-candidate", { candidate })
+        // Check if the target socket is connected
+        const targetSocket = io.sockets.sockets.get(targetUser.id)
+        if (targetSocket && targetSocket.connected) {
+          // Send ICE candidate to target user
+          io.to(targetUser.id).emit("ice-candidate", { candidate })
+        } else {
+          // Notify sender that target is disconnected
+          socket.emit("target-disconnected", { target })
+        }
       }
     }
   })
@@ -218,6 +271,8 @@ io.on("connection", (socket) => {
 
   // Handle user disconnection
   socket.on("disconnect", () => {
+    clearInterval(heartbeatInterval)
+
     if (currentRoom && currentUser) {
       // Remove user from room
       if (rooms[currentRoom]) {
