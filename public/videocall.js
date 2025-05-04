@@ -38,6 +38,21 @@ document.addEventListener("DOMContentLoaded", () => {
       { urls: "stun:stun2.l.google.com:19302" },
       { urls: "stun:stun3.l.google.com:19302" },
       { urls: "stun:stun4.l.google.com:19302" },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
     ],
   }
 
@@ -101,14 +116,20 @@ document.addEventListener("DOMContentLoaded", () => {
       targetUser = user
       isCallInitiator = true
 
-      // Show the video call modal with calling status
+      // Get local media stream first (before showing UI)
+      await setupLocalStream()
+
+      // Create peer connection after getting media
+      createPeerConnection()
+
+      // Add local tracks to peer connection
+      addLocalStreamTracks()
+
+      // Now show the video call modal with calling status
       videoCallModal.style.display = "block"
       remoteVideoLabel.textContent = targetUser
       callStatus.textContent = "Calling..."
       callStatus.style.display = "block"
-
-      // Get local media stream
-      await setupLocalStream()
 
       // Send call offer to target user
       logEvent("Initiating call", { target: targetUser, caller: currentUser })
@@ -270,28 +291,37 @@ document.addEventListener("DOMContentLoaded", () => {
     callStatus.textContent = "Setting up connection..."
 
     try {
-      // Create peer connection if not already created
+      // Ensure we have a peer connection
       if (!peerConnection) {
         createPeerConnection()
         addLocalStreamTracks()
       }
 
-      // Create and send offer
+      // Create and send offer with specific constraints
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
+        iceRestart: true, // Force ICE restart for better connectivity
       })
 
+      logEvent("Created offer", offer)
+
+      // Set local description
       await peerConnection.setLocalDescription(offer)
+      logEvent("Set local description", peerConnection.localDescription)
 
-      logEvent("Sending offer", { target: acceptor, offer })
-      socket.emit("call-offer", {
-        target: acceptor,
-        caller: currentUser,
-        offer: peerConnection.localDescription,
-      })
+      // Wait a short time to ensure ICE gathering has started
+      setTimeout(() => {
+        logEvent("Sending offer after delay", { target: acceptor, offer: peerConnection.localDescription })
+        socket.emit("call-offer", {
+          target: acceptor,
+          caller: currentUser,
+          offer: peerConnection.localDescription,
+        })
+      }, 500)
 
       callInProgress = true
+      startConnectionHealthChecks()
     } catch (error) {
       logEvent("Error creating offer", error)
       alert("Error establishing connection. Please try again.")
@@ -336,19 +366,41 @@ document.addEventListener("DOMContentLoaded", () => {
         addLocalStreamTracks()
       }
 
-      // Set remote description
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+      // Set remote description with error handling
+      try {
+        logEvent("Setting remote description from offer", offer)
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+      } catch (e) {
+        logEvent("Error setting remote description", e)
+        // Try again with a new peer connection
+        peerConnection.close()
+        createPeerConnection()
+        addLocalStreamTracks()
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+      }
 
-      // Create answer
-      const answer = await peerConnection.createAnswer()
+      // Create answer with specific constraints
+      logEvent("Creating answer", {})
+      const answer = await peerConnection.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      })
+
+      logEvent("Setting local description (answer)", answer)
       await peerConnection.setLocalDescription(answer)
 
-      logEvent("Sending answer", { target: caller, answer })
-      socket.emit("call-answer", {
-        target: caller,
-        answerer: currentUser,
-        answer: peerConnection.localDescription,
-      })
+      // Wait a short time to ensure ICE gathering has started
+      setTimeout(() => {
+        logEvent("Sending answer after delay", { target: caller, answer: peerConnection.localDescription })
+        socket.emit("call-answer", {
+          target: caller,
+          answerer: currentUser,
+          answer: peerConnection.localDescription,
+        })
+      }, 500)
+
+      callInProgress = true
+      processPendingCandidates()
     } catch (error) {
       logEvent("Error handling offer", error)
       alert("Error establishing connection. Please try again.")
@@ -357,11 +409,57 @@ document.addEventListener("DOMContentLoaded", () => {
   })
 
   // Handle call answer
+  // Store pending ICE candidates
+  let pendingIceCandidates = []
+
+  socket.on("ice-candidate", async ({ candidate }) => {
+    logEvent("Received ICE candidate", { candidate })
+
+    try {
+      if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+        // We have a remote description, add the candidate immediately
+        logEvent("Adding ICE candidate immediately", candidate)
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+      } else {
+        // Queue the candidate for later
+        logEvent("Queuing ICE candidate for later", candidate)
+        pendingIceCandidates.push(candidate)
+      }
+    } catch (error) {
+      logEvent("Error adding ICE candidate", error)
+    }
+  })
+
+  // Add this function to process pending ICE candidates
+  function processPendingCandidates() {
+    if (
+      peerConnection &&
+      peerConnection.remoteDescription &&
+      peerConnection.remoteDescription.type &&
+      pendingIceCandidates.length > 0
+    ) {
+      logEvent("Processing pending ICE candidates", { count: pendingIceCandidates.length })
+
+      pendingIceCandidates.forEach(async (candidate) => {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+          logEvent("Added pending ICE candidate", candidate)
+        } catch (e) {
+          logEvent("Error adding pending ICE candidate", e)
+        }
+      })
+
+      pendingIceCandidates = []
+    }
+  }
+
   socket.on("call-answer", async ({ answerer, answer }) => {
     logEvent("Received answer", { answerer, answer })
 
     try {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
+      processPendingCandidates() // Process any pending ICE candidates
+
       callStatus.textContent = "Connected"
       setTimeout(() => {
         if (callStatus) callStatus.style.display = "none"
@@ -374,25 +472,6 @@ document.addEventListener("DOMContentLoaded", () => {
   })
 
   // Handle ICE candidate
-  socket.on("ice-candidate", async ({ candidate }) => {
-    logEvent("Received ICE candidate", { candidate })
-
-    try {
-      if (peerConnection && peerConnection.remoteDescription && candidate) {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
-      } else if (candidate) {
-        // Queue candidates if remote description is not set yet
-        setTimeout(async () => {
-          if (peerConnection && peerConnection.remoteDescription) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
-          }
-        }, 1000)
-      }
-    } catch (error) {
-      logEvent("Error adding ICE candidate", error)
-    }
-  })
-
   // Handle call ended
   socket.on("call-ended", ({ ender }) => {
     logEvent("Call ended", { ender })
@@ -456,8 +535,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Setup local media stream
   async function setupLocalStream() {
     try {
-      if (localStream) {
+      // If we already have a stream, return it
+      if (localStream && localStream.active) {
         return localStream
+      }
+
+      // If we have an inactive stream, clean it up
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop())
+        localStream = null
       }
 
       // Show loading status
@@ -466,17 +552,38 @@ document.addEventListener("DOMContentLoaded", () => {
         callStatus.style.display = "block"
       }
 
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user",
-        },
-      })
+      // Try to get both audio and video
+      try {
+        logEvent("Requesting audio and video", {})
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: "user",
+          },
+        })
+      } catch (e) {
+        logEvent("Failed to get audio and video", e)
+
+        // If that fails, try just audio
+        try {
+          logEvent("Falling back to audio only", {})
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          })
+
+          alert("Video camera not available. Continuing with audio only.")
+        } catch (audioError) {
+          logEvent("Failed to get audio", audioError)
+          throw audioError // Re-throw if we can't even get audio
+        }
+      }
 
       if (localVideo) {
         localVideo.srcObject = localStream
+        localVideo.muted = true // Mute local video to prevent echo
       }
 
       return localStream
@@ -500,19 +607,44 @@ document.addEventListener("DOMContentLoaded", () => {
   function createPeerConnection() {
     try {
       if (peerConnection) {
-        return peerConnection
+        // Close existing connection if it exists
+        peerConnection.close()
       }
 
+      logEvent("Creating new RTCPeerConnection", iceServers)
       peerConnection = new RTCPeerConnection(iceServers)
+
+      // Store pending ICE candidates
+      const pendingCandidates = []
+      let candidatesSent = false
 
       // Handle ICE candidate events
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           logEvent("Generated ICE candidate", event.candidate)
-          socket.emit("ice-candidate", {
-            target: targetUser,
-            candidate: event.candidate,
-          })
+
+          if (targetUser) {
+            socket.emit("ice-candidate", {
+              target: targetUser,
+              candidate: event.candidate,
+            })
+            candidatesSent = true
+          } else {
+            // Queue candidates if target user is not set yet
+            pendingCandidates.push(event.candidate)
+          }
+        } else {
+          logEvent("ICE candidate gathering complete", {})
+          // Send any pending candidates if we haven't already
+          if (!candidatesSent && targetUser && pendingCandidates.length > 0) {
+            pendingCandidates.forEach((candidate) => {
+              socket.emit("ice-candidate", {
+                target: targetUser,
+                candidate: candidate,
+              })
+            })
+            candidatesSent = true
+          }
         }
       }
 
@@ -568,6 +700,16 @@ document.addEventListener("DOMContentLoaded", () => {
             callStatus.textContent = "Connection issue"
             callStatus.style.display = "block"
           }
+
+          // Try reconnecting if the connection fails
+          if (peerConnection.iceConnectionState === "failed" && isCallInitiator) {
+            logEvent("Attempting to restart ICE", {})
+            try {
+              peerConnection.restartIce()
+            } catch (e) {
+              logEvent("Error restarting ICE", e)
+            }
+          }
         }
       }
 
@@ -585,10 +727,64 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
+      // Handle negotiation needed events
+      peerConnection.onnegotiationneeded = async () => {
+        logEvent("Negotiation needed", { isCallInitiator })
+
+        // Only the initiator should create offers on negotiation needed
+        if (isCallInitiator && targetUser) {
+          try {
+            logEvent("Creating offer after negotiation needed", {})
+            const offer = await peerConnection.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            })
+
+            await peerConnection.setLocalDescription(offer)
+
+            socket.emit("call-offer", {
+              target: targetUser,
+              caller: currentUser,
+              offer: peerConnection.localDescription,
+            })
+          } catch (error) {
+            logEvent("Error handling negotiation needed", error)
+          }
+        }
+      }
+
       return peerConnection
     } catch (error) {
       logEvent("Error creating peer connection", error)
       throw error
+    }
+  }
+
+  // Add this new function after the createPeerConnection function
+  function checkConnectionHealth() {
+    if (!peerConnection || !callInProgress) return
+
+    const now = Date.now()
+
+    // If it's been more than 10 seconds since we received a remote track
+    // and the connection state isn't 'connected', try to recover
+    if (
+      peerConnection.connectionState !== "connected" &&
+      peerConnection.iceConnectionState !== "connected" &&
+      isCallInitiator
+    ) {
+      logEvent("Connection health check failed", {
+        connectionState: peerConnection.connectionState,
+        iceConnectionState: peerConnection.iceConnectionState,
+      })
+
+      // Try to restart ICE
+      try {
+        peerConnection.restartIce()
+        logEvent("ICE restart initiated", {})
+      } catch (e) {
+        logEvent("Error restarting ICE", e)
+      }
     }
   }
 
@@ -628,6 +824,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Clean up call resources
   function cleanupCall() {
+    stopConnectionHealthChecks()
     // Hide modals
     videoCallModal.style.display = "none"
     incomingCallModal.style.display = "none"
@@ -713,7 +910,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Create audio element
       const audio = new Audio()
       audio.src =
-        "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
       audio.loop = true
       audio.play().catch((e) => logEvent("Error playing sound", e))
 
@@ -761,4 +958,21 @@ document.addEventListener("DOMContentLoaded", () => {
       endCall()
     }
   })
+
+  // Set up a periodic connection health check
+  let connectionHealthInterval = null
+
+  // Start connection health checks when a call begins
+  function startConnectionHealthChecks() {
+    stopConnectionHealthChecks() // Clear any existing interval
+    connectionHealthInterval = setInterval(checkConnectionHealth, 5000) // Check every 5 seconds
+  }
+
+  // Stop connection health checks
+  function stopConnectionHealthChecks() {
+    if (connectionHealthInterval) {
+      clearInterval(connectionHealthInterval)
+      connectionHealthInterval = null
+    }
+  }
 })
