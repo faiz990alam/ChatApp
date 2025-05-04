@@ -28,6 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentUser = null
   let isAudioMuted = false
   let isVideoMuted = false
+  let callTimeout = null
 
   // STUN servers for NAT traversal
   const iceServers = {
@@ -40,11 +41,16 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   }
 
-  // Get socket.io instance from the main script
+  // Get socket.io instance
   const socket = io()
 
   // Initialize current user
   currentUser = sessionStorage.getItem("username")
+
+  // Debug logging function
+  function logEvent(event, data) {
+    console.log(`[VideoCall] ${event}:`, data)
+  }
 
   // Video call button click handler
   videoCallBtn.addEventListener("click", () => {
@@ -95,41 +101,55 @@ document.addEventListener("DOMContentLoaded", () => {
       targetUser = user
       isCallInitiator = true
 
-      // Get local media stream
-      await setupLocalStream()
-
-      // Create peer connection
-      createPeerConnection()
-
-      // Add local tracks to peer connection
-      addLocalStreamTracks()
-
-      // Show the video call modal
+      // Show the video call modal with calling status
       videoCallModal.style.display = "block"
       remoteVideoLabel.textContent = targetUser
       callStatus.textContent = "Calling..."
       callStatus.style.display = "block"
 
+      // Get local media stream
+      await setupLocalStream()
+
       // Send call offer to target user
+      logEvent("Initiating call", { target: targetUser, caller: currentUser })
       socket.emit("call-user", {
         target: targetUser,
         caller: currentUser,
       })
 
-      console.log(`Initiating call to ${targetUser}`)
+      // Set a timeout for the call
+      callTimeout = setTimeout(() => {
+        if (!callInProgress) {
+          alert(`No response from ${targetUser}. They may be unavailable.`)
+          endCall()
+        }
+      }, 30000) // 30 seconds timeout
     } catch (error) {
-      console.error("Error initiating call:", error)
+      logEvent("Error initiating call", error)
       alert("Could not start video call. Please check your camera and microphone permissions.")
       cleanupCall()
     }
   }
 
+  // Handle call request sent confirmation
+  socket.on("call-request-sent", ({ target }) => {
+    logEvent("Call request sent", { target })
+  })
+
+  // Handle call failed
+  socket.on("call-failed", ({ target, reason }) => {
+    logEvent("Call failed", { target, reason })
+    alert(`Call to ${target} failed: ${reason}`)
+    endCall()
+  })
+
   // Handle incoming call
   socket.on("incoming-call", ({ caller }) => {
-    console.log(`Incoming call from ${caller}`)
+    logEvent("Incoming call", { caller })
 
     // If already in a call, automatically reject
     if (callInProgress) {
+      logEvent("Rejecting call (already in call)", { caller })
       socket.emit("call-rejected", {
         target: caller,
         rejector: currentUser,
@@ -137,19 +157,49 @@ document.addEventListener("DOMContentLoaded", () => {
       return
     }
 
+    // Play notification sound
+    playCallSound()
+
     // Show incoming call modal
     incomingCallText.textContent = `${caller} is calling you`
     incomingCallModal.style.display = "block"
 
     // Set caller as target user
     targetUser = caller
+
+    // Set a timeout for the incoming call
+    callTimeout = setTimeout(() => {
+      if (incomingCallModal.style.display === "block") {
+        logEvent("Call timed out", { caller })
+        // Auto reject after 30 seconds
+        socket.emit("call-rejected", {
+          target: caller,
+          rejector: currentUser,
+          reason: "no_answer",
+        })
+        incomingCallModal.style.display = "none"
+        targetUser = null
+      }
+    }, 30000) // 30 seconds timeout
   })
 
   // Accept call button click handler
   acceptCallBtn.addEventListener("click", async () => {
     try {
+      // Clear the call timeout
+      if (callTimeout) {
+        clearTimeout(callTimeout)
+        callTimeout = null
+      }
+
       // Hide incoming call modal
       incomingCallModal.style.display = "none"
+
+      // Show video call modal with connecting status
+      videoCallModal.style.display = "block"
+      remoteVideoLabel.textContent = targetUser
+      callStatus.textContent = "Connecting..."
+      callStatus.style.display = "block"
 
       // Get local media stream
       await setupLocalStream()
@@ -160,47 +210,48 @@ document.addEventListener("DOMContentLoaded", () => {
       // Add local tracks to peer connection
       addLocalStreamTracks()
 
-      // Show video call modal
-      videoCallModal.style.display = "block"
-      remoteVideoLabel.textContent = targetUser
-      callStatus.textContent = "Connecting..."
-      callStatus.style.display = "block"
-
       // Send call accepted to caller
+      logEvent("Accepting call", { target: targetUser })
       socket.emit("call-accepted", {
         target: targetUser,
         acceptor: currentUser,
       })
-
-      console.log(`Accepted call from ${targetUser}`)
     } catch (error) {
-      console.error("Error accepting call:", error)
+      logEvent("Error accepting call", error)
       alert("Could not accept video call. Please check your camera and microphone permissions.")
-      cleanupCall()
 
       // Notify caller that call was rejected due to error
       socket.emit("call-rejected", {
         target: targetUser,
         rejector: currentUser,
+        reason: "error",
       })
+
+      cleanupCall()
     }
   })
 
   // Reject call button click handler
   rejectCallBtn.addEventListener("click", () => {
+    // Clear the call timeout
+    if (callTimeout) {
+      clearTimeout(callTimeout)
+      callTimeout = null
+    }
+
     // Hide incoming call modal
     incomingCallModal.style.display = "none"
 
     // Send call rejected to caller
+    logEvent("Rejecting call", { target: targetUser })
     socket.emit("call-rejected", {
       target: targetUser,
       rejector: currentUser,
+      reason: "rejected",
     })
 
-    console.log(`Rejected call from ${targetUser}`)
-
     // Add system message to chat
-    addCallHistoryMessage(`You rejected a call from ${targetUser}`)
+    addCallHistoryMessage(`You declined a call from ${targetUser}`)
 
     // Reset target user
     targetUser = null
@@ -208,39 +259,64 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Handle call accepted
   socket.on("call-accepted", async ({ acceptor }) => {
-    console.log(`Call accepted by ${acceptor}`)
+    logEvent("Call accepted", { acceptor })
 
-    // Create and send offer
+    // Clear the call timeout
+    if (callTimeout) {
+      clearTimeout(callTimeout)
+      callTimeout = null
+    }
+
+    callStatus.textContent = "Setting up connection..."
+
     try {
-      callStatus.textContent = "Setting up connection..."
-      callStatus.style.display = "block"
+      // Create peer connection if not already created
+      if (!peerConnection) {
+        createPeerConnection()
+        addLocalStreamTracks()
+      }
 
+      // Create and send offer
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
       })
+
       await peerConnection.setLocalDescription(offer)
 
+      logEvent("Sending offer", { target: acceptor, offer })
       socket.emit("call-offer", {
         target: acceptor,
         caller: currentUser,
         offer: peerConnection.localDescription,
       })
 
-      callStatus.textContent = "Waiting for connection..."
+      callInProgress = true
     } catch (error) {
-      console.error("Error creating offer:", error)
+      logEvent("Error creating offer", error)
       alert("Error establishing connection. Please try again.")
       endCall()
     }
   })
 
   // Handle call rejected
-  socket.on("call-rejected", ({ rejector }) => {
-    console.log(`Call rejected by ${rejector}`)
+  socket.on("call-rejected", ({ rejector, reason }) => {
+    logEvent("Call rejected", { rejector, reason })
 
-    // Show alert to caller
-    alert(`${rejector} declined your call`)
+    // Clear the call timeout
+    if (callTimeout) {
+      clearTimeout(callTimeout)
+      callTimeout = null
+    }
+
+    // Show appropriate message based on reason
+    if (reason === "no_answer") {
+      alert(`${rejector} did not answer the call.`)
+    } else if (reason === "error") {
+      alert(`${rejector} couldn't connect due to a technical issue.`)
+    } else {
+      alert(`${rejector} declined your call.`)
+    }
 
     // Add system message to chat
     addCallHistoryMessage(`${rejector} declined your call`)
@@ -251,25 +327,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Handle call offer
   socket.on("call-offer", async ({ caller, offer }) => {
-    try {
-      console.log(`Received offer from ${caller}`)
-      callStatus.textContent = "Connecting..."
-      callStatus.style.display = "block"
+    logEvent("Received offer", { caller, offer })
 
+    try {
+      // Create peer connection if not already created
+      if (!peerConnection) {
+        createPeerConnection()
+        addLocalStreamTracks()
+      }
+
+      // Set remote description
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
 
+      // Create answer
       const answer = await peerConnection.createAnswer()
       await peerConnection.setLocalDescription(answer)
 
+      logEvent("Sending answer", { target: caller, answer })
       socket.emit("call-answer", {
         target: caller,
         answerer: currentUser,
         answer: peerConnection.localDescription,
       })
-
-      callInProgress = true
     } catch (error) {
-      console.error("Error handling offer:", error)
+      logEvent("Error handling offer", error)
       alert("Error establishing connection. Please try again.")
       endCall()
     }
@@ -277,18 +358,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Handle call answer
   socket.on("call-answer", async ({ answerer, answer }) => {
+    logEvent("Received answer", { answerer, answer })
+
     try {
-      console.log(`Received answer from ${answerer}`)
-
       await peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
-
-      callInProgress = true
       callStatus.textContent = "Connected"
       setTimeout(() => {
-        callStatus.style.display = "none"
+        if (callStatus) callStatus.style.display = "none"
       }, 2000)
     } catch (error) {
-      console.error("Error handling answer:", error)
+      logEvent("Error handling answer", error)
       alert("Error establishing connection. Please try again.")
       endCall()
     }
@@ -296,18 +375,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Handle ICE candidate
   socket.on("ice-candidate", async ({ candidate }) => {
+    logEvent("Received ICE candidate", { candidate })
+
     try {
-      if (peerConnection && candidate) {
+      if (peerConnection && peerConnection.remoteDescription && candidate) {
         await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+      } else if (candidate) {
+        // Queue candidates if remote description is not set yet
+        setTimeout(async () => {
+          if (peerConnection && peerConnection.remoteDescription) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+          }
+        }, 1000)
       }
     } catch (error) {
-      console.error("Error adding ICE candidate:", error)
+      logEvent("Error adding ICE candidate", error)
     }
   })
 
   // Handle call ended
   socket.on("call-ended", ({ ender }) => {
-    console.log(`Call ended by ${ender}`)
+    logEvent("Call ended", { ender })
 
     // Add system message to chat
     addCallHistoryMessage(`${ender} ended the call`)
@@ -368,9 +456,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Setup local media stream
   async function setupLocalStream() {
     try {
+      if (localStream) {
+        return localStream
+      }
+
       // Show loading status
-      callStatus.textContent = "Requesting camera access..."
-      callStatus.style.display = "block"
+      if (callStatus) {
+        callStatus.textContent = "Requesting camera access..."
+        callStatus.style.display = "block"
+      }
 
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -387,7 +481,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       return localStream
     } catch (error) {
-      console.error("Error accessing media devices:", error)
+      logEvent("Error accessing media devices", error)
 
       // Show more specific error message
       if (error.name === "NotAllowedError") {
@@ -405,11 +499,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // Create WebRTC peer connection
   function createPeerConnection() {
     try {
+      if (peerConnection) {
+        return peerConnection
+      }
+
       peerConnection = new RTCPeerConnection(iceServers)
 
       // Handle ICE candidate events
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+          logEvent("Generated ICE candidate", event.candidate)
           socket.emit("ice-candidate", {
             target: targetUser,
             candidate: event.candidate,
@@ -417,22 +516,30 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
+      // Log ICE gathering state changes
+      peerConnection.onicegatheringstatechange = () => {
+        logEvent("ICE gathering state", peerConnection.iceGatheringState)
+      }
+
       // Handle connection state changes
       peerConnection.onconnectionstatechange = () => {
-        console.log("Connection state:", peerConnection.connectionState)
+        logEvent("Connection state", peerConnection.connectionState)
 
         if (peerConnection.connectionState === "connected") {
           callStatus.textContent = "Connected"
           setTimeout(() => {
-            callStatus.style.display = "none"
+            if (callStatus) callStatus.style.display = "none"
           }, 2000)
+          callInProgress = true
         } else if (
           peerConnection.connectionState === "disconnected" ||
           peerConnection.connectionState === "failed" ||
           peerConnection.connectionState === "closed"
         ) {
-          callStatus.textContent = "Connection lost"
-          callStatus.style.display = "block"
+          if (callStatus) {
+            callStatus.textContent = "Connection lost"
+            callStatus.style.display = "block"
+          }
 
           // Auto end call after a short delay if connection is lost
           if (peerConnection.connectionState === "failed") {
@@ -445,40 +552,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Handle ICE connection state changes
       peerConnection.oniceconnectionstatechange = () => {
-        console.log("ICE connection state:", peerConnection.iceConnectionState)
+        logEvent("ICE connection state", peerConnection.iceConnectionState)
 
         if (peerConnection.iceConnectionState === "connected") {
           callStatus.textContent = "Connected"
           setTimeout(() => {
-            callStatus.style.display = "none"
+            if (callStatus) callStatus.style.display = "none"
           }, 2000)
         } else if (
           peerConnection.iceConnectionState === "disconnected" ||
           peerConnection.iceConnectionState === "failed" ||
           peerConnection.iceConnectionState === "closed"
         ) {
-          callStatus.textContent = "Connection issue"
-          callStatus.style.display = "block"
+          if (callStatus) {
+            callStatus.textContent = "Connection issue"
+            callStatus.style.display = "block"
+          }
         }
       }
 
       // Handle remote track events
       peerConnection.ontrack = (event) => {
-        console.log("Remote track received")
+        logEvent("Remote track received", event.track.kind)
         remoteStream = event.streams[0]
         if (remoteVideo) {
           remoteVideo.srcObject = remoteStream
 
           // Hide the call status when we start receiving video
           setTimeout(() => {
-            callStatus.style.display = "none"
+            if (callStatus) callStatus.style.display = "none"
           }, 1000)
         }
       }
 
       return peerConnection
     } catch (error) {
-      console.error("Error creating peer connection:", error)
+      logEvent("Error creating peer connection", error)
       throw error
     }
   }
@@ -487,6 +596,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function addLocalStreamTracks() {
     if (localStream && peerConnection) {
       localStream.getTracks().forEach((track) => {
+        logEvent("Adding local track to peer connection", track.kind)
         peerConnection.addTrack(track, localStream)
       })
     }
@@ -494,8 +604,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // End call and clean up resources
   function endCall() {
+    // Clear the call timeout
+    if (callTimeout) {
+      clearTimeout(callTimeout)
+      callTimeout = null
+    }
+
     if (targetUser) {
       // Notify other user that call has ended
+      logEvent("Ending call", { target: targetUser })
       socket.emit("call-ended", {
         target: targetUser,
         ender: currentUser,
@@ -511,8 +628,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Clean up call resources
   function cleanupCall() {
-    // Hide video call modal
+    // Hide modals
     videoCallModal.style.display = "none"
+    incomingCallModal.style.display = "none"
 
     // Stop local stream tracks
     if (localStream) {
@@ -540,10 +658,17 @@ document.addEventListener("DOMContentLoaded", () => {
     isVideoMuted = false
 
     // Reset UI
-    toggleAudioBtn.innerHTML = '<i class="fas fa-microphone"></i>'
-    toggleAudioBtn.classList.remove("muted")
-    toggleVideoBtn.innerHTML = '<i class="fas fa-video"></i>'
-    toggleVideoBtn.classList.remove("muted")
+    if (toggleAudioBtn) {
+      toggleAudioBtn.innerHTML = '<i class="fas fa-microphone"></i>'
+      toggleAudioBtn.classList.remove("muted")
+    }
+
+    if (toggleVideoBtn) {
+      toggleVideoBtn.innerHTML = '<i class="fas fa-video"></i>'
+      toggleVideoBtn.classList.remove("muted")
+    }
+
+    logEvent("Call resources cleaned up", {})
   }
 
   // Add call history message to chat
@@ -576,9 +701,57 @@ document.addEventListener("DOMContentLoaded", () => {
     // Scroll to bottom
     chatMessages.scrollTop = chatMessages.scrollHeight
 
-    // Save message if the saveMessage function exists
-    if (typeof saveMessage === "function") {
-      saveMessage(callMessage)
+    // Save message if window.saveMessage exists
+    if (typeof window.saveMessage === "function") {
+      window.saveMessage(callMessage)
+    }
+  }
+
+  // Play call sound
+  function playCallSound() {
+    try {
+      // Create audio element
+      const audio = new Audio()
+      audio.src =
+        "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+      audio.loop = true
+      audio.play().catch((e) => logEvent("Error playing sound", e))
+
+      // Stop after 30 seconds
+      setTimeout(() => {
+        audio.pause()
+        audio.src = ""
+      }, 30000)
+
+      // Store reference to stop when call is answered/rejected
+      window.callSound = audio
+
+      // Stop sound when call is accepted or rejected
+      acceptCallBtn.addEventListener(
+        "click",
+        () => {
+          if (window.callSound) {
+            window.callSound.pause()
+            window.callSound.src = ""
+            window.callSound = null
+          }
+        },
+        { once: true },
+      )
+
+      rejectCallBtn.addEventListener(
+        "click",
+        () => {
+          if (window.callSound) {
+            window.callSound.pause()
+            window.callSound.src = ""
+            window.callSound = null
+          }
+        },
+        { once: true },
+      )
+    } catch (e) {
+      logEvent("Error with call sound", e)
     }
   }
 
