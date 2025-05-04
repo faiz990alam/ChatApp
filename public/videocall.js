@@ -116,6 +116,13 @@ document.addEventListener("DOMContentLoaded", () => {
       targetUser = user
       isCallInitiator = true
 
+      // Make sure we have the current room code
+      const roomCode = sessionStorage.getItem("roomCode")
+      if (!roomCode) {
+        alert("Room information not found. Please rejoin the room.")
+        return
+      }
+
       // Get local media stream first (before showing UI)
       await setupLocalStream()
 
@@ -132,10 +139,11 @@ document.addEventListener("DOMContentLoaded", () => {
       callStatus.style.display = "block"
 
       // Send call offer to target user
-      logEvent("Initiating call", { target: targetUser, caller: currentUser })
+      logEvent("Initiating call", { target: targetUser, caller: currentUser, room: roomCode })
       socket.emit("call-user", {
         target: targetUser,
         caller: currentUser,
+        room: roomCode, // Add room information to the call request
       })
 
       // Set a timeout for the call
